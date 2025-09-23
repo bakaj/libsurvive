@@ -73,6 +73,11 @@ END_STRUCT_CONFIG_SECTION(SurviveRecordingData)
 	STATIC_CONFIG_ITEM(UDP_STREAM_HOST, "udp-stream-host", 's', "UDP target host for streaming", "127.0.0.1")
 	STATIC_CONFIG_ITEM(UDP_STREAM_PORT, "udp-stream-port", 'i', "UDP target port for streaming", 2333)
 
+// Forward declarations for UDP streaming functions
+static void udp_stream_init(SurviveRecordingData *recordingData);
+static void udp_stream_send(SurviveRecordingData *recordingData, const char *data, int len);
+static void udp_stream_cleanup(SurviveRecordingData *recordingData);
+
 	static void write_to_output_raw(SurviveRecordingData *recordingData, const char *string, int len) {
 		if (recordingData->output_file) {
 			gzwrite(recordingData->output_file, string, len);
@@ -173,6 +178,7 @@ static void udp_stream_init(SurviveRecordingData *recordingData) {
 		return;
 	}
 
+	SurviveContext *ctx = recordingData->ctx;
 	recordingData->udp_socket = socket(AF_INET, SOCK_DGRAM, 0);
 	if (recordingData->udp_socket < 0) {
 		SV_WARN("Failed to create UDP socket for streaming");
@@ -183,8 +189,8 @@ static void udp_stream_init(SurviveRecordingData *recordingData) {
 	memset(&recordingData->udp_target_addr, 0, sizeof(recordingData->udp_target_addr));
 	recordingData->udp_target_addr.sin_family = AF_INET;
 	
-	const char *host = survive_configs(recordingData->ctx, UDP_STREAM_HOST_TAG, SC_GET, "127.0.0.1");
-	int port = survive_configi(recordingData->ctx, UDP_STREAM_PORT_TAG, SC_GET, 2333);
+	const char *host = survive_configs(ctx, UDP_STREAM_HOST_TAG, SC_GET, "127.0.0.1");
+	int port = survive_configi(ctx, UDP_STREAM_PORT_TAG, SC_GET, 2333);
 	
 	if (inet_pton(AF_INET, host, &recordingData->udp_target_addr.sin_addr) <= 0) {
 		SV_WARN("Invalid UDP stream host: %s", host);
