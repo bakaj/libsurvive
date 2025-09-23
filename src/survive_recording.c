@@ -27,6 +27,19 @@
 
 #include "survive_gz.h"
 
+// UDP streaming includes
+#ifdef _WIN32
+#include "winsock2.h"
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#endif
+
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
 typedef struct SurviveRecordingData {
 	SurviveContext *ctx;
 	bool alwaysWriteStdOut;
@@ -36,6 +49,12 @@ typedef struct SurviveRecordingData {
 	bool writeAngle;
 	int writeDataMatrix;
 	gzFile output_file;
+	
+	// UDP streaming fields
+	bool udpStreamEnabled;
+	int udp_socket;
+	struct sockaddr_in udp_target_addr;
+	char udp_buffer[8192];  // Buffer for UDP messages
 } SurviveRecordingData;
 
 // clang-format off
@@ -45,11 +64,14 @@ STRUCT_CONFIG_SECTION(SurviveRecordingData)
     STRUCT_CONFIG_ITEM("record-cal-imu", "Whether or not to output calibrated imu data", 0, t->writeCalIMU)
 	STRUCT_CONFIG_ITEM("record-angle", "Whether or not to output angle data", 1, t->writeAngle)
 	STRUCT_CONFIG_ITEM("record-data-matrices", "Whether or not to output data matrices", 0, t->writeDataMatrix)
+	STRUCT_CONFIG_ITEM("udp-stream", "Enable UDP streaming of recording data", 0, t->udpStreamEnabled)
 END_STRUCT_CONFIG_SECTION(SurviveRecordingData)
 	// clang-format on
 
 	STATIC_CONFIG_ITEM(RECORD, "record", 's', "File to record to if you wish to make a recording.", "")
 	STATIC_CONFIG_ITEM(RECORD_STDOUT, "record-stdout", 'b', "Whether or not to dump recording data to stdout", 0)
+	STATIC_CONFIG_ITEM(UDP_STREAM_HOST, "udp-stream-host", 's', "UDP target host for streaming", "127.0.0.1")
+	STATIC_CONFIG_ITEM(UDP_STREAM_PORT, "udp-stream-port", 'i', "UDP target port for streaming", 2333)
 
 	static void write_to_output_raw(SurviveRecordingData *recordingData, const char *string, int len) {
 		if (recordingData->output_file) {
@@ -103,6 +125,16 @@ void survive_recording_write_to_output(struct SurviveRecordingData *recordingDat
 		vfprintf(stdout, format, args);
 		va_end(args);
 	}
+
+	// UDP streaming
+	if (recordingData->udpStreamEnabled) {
+		va_list args;
+		va_start(args, format);
+		int len = snprintf(recordingData->udp_buffer, sizeof(recordingData->udp_buffer), FLT_PRINTF, ts);
+		len += vsnprintf(recordingData->udp_buffer + len, sizeof(recordingData->udp_buffer) - len, format, args);
+		va_end(args);
+		udp_stream_send(recordingData, recordingData->udp_buffer, len);
+	}
 }
 
 void survive_recording_write_to_output_nopreamble(struct SurviveRecordingData *recordingData, const char *format, ...) {
@@ -123,6 +155,69 @@ void survive_recording_write_to_output_nopreamble(struct SurviveRecordingData *r
 		va_start(args, format);
 		vfprintf(stdout, format, args);
 		va_end(args);
+	}
+
+	// UDP streaming (no timestamp preamble)
+	if (recordingData->udpStreamEnabled) {
+		va_list args;
+		va_start(args, format);
+		int len = vsnprintf(recordingData->udp_buffer, sizeof(recordingData->udp_buffer), format, args);
+		va_end(args);
+		udp_stream_send(recordingData, recordingData->udp_buffer, len);
+	}
+}
+
+// UDP streaming helper functions
+static void udp_stream_init(SurviveRecordingData *recordingData) {
+	if (!recordingData || !recordingData->udpStreamEnabled) {
+		return;
+	}
+
+	recordingData->udp_socket = socket(AF_INET, SOCK_DGRAM, 0);
+	if (recordingData->udp_socket < 0) {
+		SV_WARN("Failed to create UDP socket for streaming");
+		recordingData->udpStreamEnabled = false;
+		return;
+	}
+
+	memset(&recordingData->udp_target_addr, 0, sizeof(recordingData->udp_target_addr));
+	recordingData->udp_target_addr.sin_family = AF_INET;
+	
+	const char *host = survive_configs(recordingData->ctx, UDP_STREAM_HOST_TAG, SC_GET, "127.0.0.1");
+	int port = survive_configi(recordingData->ctx, UDP_STREAM_PORT_TAG, SC_GET, 2333);
+	
+	if (inet_pton(AF_INET, host, &recordingData->udp_target_addr.sin_addr) <= 0) {
+		SV_WARN("Invalid UDP stream host: %s", host);
+		recordingData->udpStreamEnabled = false;
+		close(recordingData->udp_socket);
+		return;
+	}
+	
+	recordingData->udp_target_addr.sin_port = htons(port);
+	SV_INFO("UDP streaming enabled to %s:%d", host, port);
+}
+
+static void udp_stream_send(SurviveRecordingData *recordingData, const char *data, int len) {
+	if (!recordingData || !recordingData->udpStreamEnabled || recordingData->udp_socket < 0) {
+		return;
+	}
+
+	// Truncate if too long
+	if (len >= sizeof(recordingData->udp_buffer)) {
+		len = sizeof(recordingData->udp_buffer) - 1;
+	}
+	
+	memcpy(recordingData->udp_buffer, data, len);
+	recordingData->udp_buffer[len] = '\0';
+	
+	sendto(recordingData->udp_socket, recordingData->udp_buffer, len, MSG_NOSIGNAL,
+		   (struct sockaddr*)&recordingData->udp_target_addr, sizeof(recordingData->udp_target_addr));
+}
+
+static void udp_stream_cleanup(SurviveRecordingData *recordingData) {
+	if (recordingData && recordingData->udp_socket >= 0) {
+		close(recordingData->udp_socket);
+		recordingData->udp_socket = -1;
 	}
 }
 void survive_recording_disconnect_process(struct SurviveObject *so) {
@@ -377,7 +472,10 @@ void survive_recording_raw_imu_process(struct SurviveObject *so, int mask, const
 void survive_destroy_recording(SurviveContext *ctx) {
 	if (ctx->recptr) {
 		SurviveRecordingData_detach_config(ctx, ctx->recptr);
-		gzclose(ctx->recptr->output_file);
+		if (ctx->recptr->output_file) {
+			gzclose(ctx->recptr->output_file);
+		}
+		udp_stream_cleanup(ctx->recptr);
 		free(ctx->recptr);
 		ctx->recptr = 0;
 	}
@@ -393,11 +491,20 @@ void survive_record_config(SurviveContext *ctx, const char *tag, uint8_t type, c
 void survive_install_recording(SurviveContext *ctx) {
 	const char *dataout_file = survive_configs(ctx, "record", SC_GET, "");
 	int record_to_stdout = survive_configi(ctx, "record-stdout", SC_GET, 0);
+	int udp_stream_enabled = survive_configi(ctx, "udp-stream", SC_GET, 0);
 
-	if (strlen(dataout_file) > 0 || record_to_stdout) {
+	if (strlen(dataout_file) > 0 || record_to_stdout || udp_stream_enabled) {
 		ctx->recptr = SV_CALLOC(sizeof(struct SurviveRecordingData));
 		ctx->recptr->ctx = ctx;
 		SurviveRecordingData_attach_config(ctx, ctx->recptr);
+		
+		// Initialize UDP streaming
+		ctx->recptr->udpStreamEnabled = udp_stream_enabled;
+		ctx->recptr->udp_socket = -1;
+		if (udp_stream_enabled) {
+			udp_stream_init(ctx->recptr);
+		}
+		
 		if (strlen(dataout_file) > 0) {
 			if (strstr(dataout_file, ".pcap")) {
 				int (*usb_driver)(SurviveContext *) = (int (*)(SurviveContext *))GetDriver("DriverRegUSBMon_Record");
