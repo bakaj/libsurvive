@@ -65,3 +65,9 @@ venv
 dist/
 pysurvive.egg-info/
 _skbuild/
+
+docs/doxygen/**
+docs/advanced_graphs/**
+docs/advanced_graphs/*
+
+**/.DS_Store
