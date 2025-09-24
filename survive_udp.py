@@ -328,19 +328,19 @@ class BaseUDPReceiver:
             elif data_type == 'LH_POSE':
                 # LH_POSE: lighthouse_id x y z qx qy qz qw basestation_id
                 if len(data_values) >= 8:
-                    lighthouse_id = int(data_values[0])
+                    lighthouse_id = int(float(data_values[0]))  # Handle float lighthouse_id
                     pose_data = [float(x) for x in data_values[1:8]]
                     device.lighthouse_data[lighthouse_id].append((timestamp, pose_data))
             
             elif data_type == 'A':  # Angle data
                 # A: sensor_id acode timecode length angle lighthouse_id
                 if len(data_values) >= 6:
-                    sensor_id = int(data_values[0])
-                    acode = int(data_values[1])
-                    timecode = int(data_values[2])
+                    sensor_id = int(float(data_values[0]))  # Handle float sensor_id
+                    acode = int(float(data_values[1]))  # Handle float acode
+                    timecode = int(float(data_values[2]))  # Handle float timecode
                     length = float(data_values[3])
                     angle = float(data_values[4])
-                    lighthouse_id = int(data_values[5])
+                    lighthouse_id = int(float(data_values[5]))  # Handle float lighthouse_id
                     
                     # Store angle data
                     key = (sensor_id, lighthouse_id, acode & 1)  # axis is acode & 1
@@ -350,10 +350,10 @@ class BaseUDPReceiver:
             elif data_type == 'B':  # Sweep angle
                 # B: channel sensor_id timecode plane angle
                 if len(data_values) >= 5:
-                    channel = int(data_values[0])
-                    sensor_id = int(data_values[1])
-                    timecode = int(data_values[2])
-                    plane = int(data_values[3])
+                    channel = int(float(data_values[0]))  # Handle float channel
+                    sensor_id = int(float(data_values[1]))  # Handle float sensor_id
+                    timecode = int(float(data_values[2]))  # Handle float timecode
+                    plane = int(float(data_values[3]))  # Handle float plane
                     angle = float(data_values[4])
                     
                     # Store sweep angle data
@@ -361,11 +361,12 @@ class BaseUDPReceiver:
                     device.angles[key].append((timestamp, angle))
             
             elif data_type == 'W':  # Sweep data
-                # W: channel sensor_id timecode
-                if len(data_values) >= 3:
-                    channel = int(data_values[0])
-                    sensor_id = int(data_values[1])
-                    timecode = int(data_values[2])
+                # W: channel sensor_id timecode flag
+                if len(data_values) >= 4:
+                    channel = int(float(data_values[0]))  # Handle float channel
+                    sensor_id = int(float(data_values[1]))  # Handle float sensor_id
+                    timecode = int(float(data_values[2]))  # Handle float timecode
+                    flag = int(float(data_values[3]))  # Handle float flag
                     
                     # Initialize sweep data
                     key = (channel, 0)  # horizontal axis
@@ -374,10 +375,12 @@ class BaseUDPReceiver:
                     device.angle_per_sweep[key].append((timestamp, []))
             
             elif data_type == 'Y':  # Sync data
-                # Y: channel timecode
-                if len(data_values) >= 2:
-                    channel = int(data_values[0])
-                    timecode = int(data_values[1])
+                # Y: channel timecode ootx gen
+                if len(data_values) >= 4:
+                    channel = int(float(data_values[0]))  # Handle float channel
+                    timecode = int(float(data_values[1]))  # Handle float timecode
+                    ootx = int(float(data_values[2]))  # Handle float ootx
+                    gen = int(float(data_values[3]))  # Handle float gen
                     
                     # Initialize sync data
                     key = (channel, 0)  # horizontal axis
@@ -388,8 +391,8 @@ class BaseUDPReceiver:
             elif data_type == 'C':  # Light intensity
                 # C: sensor_id timecode length
                 if len(data_values) >= 3:
-                    sensor_id = int(data_values[0])
-                    timecode = int(data_values[1])
+                    sensor_id = int(float(data_values[0]))  # Handle float sensor_id
+                    timecode = int(float(data_values[1]))  # Handle float timecode
                     length = float(data_values[2])
                     
                     # Store light data (assuming lighthouse 0, axis 0)
@@ -399,8 +402,8 @@ class BaseUDPReceiver:
             elif data_type == 'BUTTON':
                 # BUTTON: button_id state
                 if len(data_values) >= 2:
-                    button_id = int(data_values[0])
-                    state = int(data_values[1])
+                    button_id = int(float(data_values[0]))  # Handle float button_id
+                    state = int(float(data_values[1]))  # Handle float state
                     device.button_events.append((timestamp, button_id, state))
             
             elif data_type == 'CONFIG':
@@ -410,10 +413,96 @@ class BaseUDPReceiver:
                     value = ' '.join(data_values[1:])
                     device.config_data.append((timestamp, key, value))
             
+            elif data_type == 'DISCONNECT':
+                # DISCONNECT: device_name
+                if len(data_values) >= 1:
+                    device_name = data_values[0]
+                    # Mark device as disconnected (could add disconnect tracking)
+                    pass
+            
+            elif data_type == 'EXTERNAL_POSE':
+                # EXTERNAL_POSE: name x y z qx qy qz qw
+                if len(data_values) >= 8:
+                    name = data_values[0]
+                    pose_data = [float(x) for x in data_values[1:8]]
+                    # Store as external pose (could add external pose tracking)
+                    pass
+            
+            elif data_type == 'EXTERNAL_VELOCITY':
+                # EXTERNAL_VELOCITY: name vx vy vz wx wy wz
+                if len(data_values) >= 7:
+                    name = data_values[0]
+                    velocity_data = [float(x) for x in data_values[1:7]]
+                    # Store as external velocity (could add external velocity tracking)
+                    pass
+            
+            elif data_type == 'INFO':
+                # INFO LOG: message
+                if len(data_values) >= 2 and data_values[0] == 'LOG':
+                    message = ' '.join(data_values[1:])
+                    # Store as info log (could add info log tracking)
+                    pass
+            
+            elif data_type == 'S':  # Light data (from light_process)
+                # S: sensor_id acode timeinsweep timecode length lighthouse_id
+                if len(data_values) >= 6:
+                    sensor_id = int(float(data_values[0]))
+                    acode = int(float(data_values[1]))
+                    timeinsweep = int(float(data_values[2]))
+                    timecode = int(float(data_values[3]))
+                    length = int(float(data_values[4]))
+                    lighthouse_id = int(float(data_values[5]))
+                    
+                    # Store light data
+                    key = (sensor_id, lighthouse_id, acode & 1)
+                    device.light_data[key].append((timestamp, length))
+            
+            elif data_type == 'L':  # Light data (from light_process)
+                # L: sensor_id acode timeinsweep timecode length lighthouse_id
+                if len(data_values) >= 6:
+                    sensor_id = int(float(data_values[0]))
+                    acode = int(float(data_values[1]))
+                    timeinsweep = int(float(data_values[2]))
+                    timecode = int(float(data_values[3]))
+                    length = int(float(data_values[4]))
+                    lighthouse_id = int(float(data_values[5]))
+                    
+                    # Store light data
+                    key = (sensor_id, lighthouse_id, acode & 1)
+                    device.light_data[key].append((timestamp, length))
+            
+            elif data_type == 'R':  # Light data (from light_process)
+                # R: sensor_id acode timeinsweep timecode length lighthouse_id
+                if len(data_values) >= 6:
+                    sensor_id = int(float(data_values[0]))
+                    acode = int(float(data_values[1]))
+                    timeinsweep = int(float(data_values[2]))
+                    timecode = int(float(data_values[3]))
+                    length = int(float(data_values[4]))
+                    lighthouse_id = int(float(data_values[5]))
+                    
+                    # Store light data
+                    key = (sensor_id, lighthouse_id, acode & 1)
+                    device.light_data[key].append((timestamp, length))
+            
             # Handle other data types as needed
             else:
                 # Store unknown data types in datalogs
-                device.datalogs[data_type].append((timestamp, [float(x) if x.replace('.', '').replace('-', '').isdigit() else x for x in data_values]))
+                # Try to convert numeric values, keep strings as-is
+                converted_values = []
+                for x in data_values:
+                    try:
+                        # Try to convert to float first, then to int if it's a whole number
+                        float_val = float(x)
+                        if float_val.is_integer():
+                            converted_values.append(int(float_val))
+                        else:
+                            converted_values.append(float_val)
+                    except ValueError:
+                        # Keep as string if conversion fails
+                        converted_values.append(x)
+                
+                device.datalogs[data_type].append((timestamp, converted_values))
         
         except (ValueError, IndexError) as e:
             print(f"Error parsing {data_type} data: {e}")
