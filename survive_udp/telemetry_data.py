@@ -116,3 +116,30 @@ class TelemetryData:
         
         avg_velocity = total_velocity / len(recent_velocities)
         return avg_velocity > threshold
+    
+    def export_data(self) -> Dict[str, Any]:
+        """
+        Export all telemetry data for this device.
+        
+        Returns:
+            Dict[str, Any]: Complete device data export
+        """
+        return {
+            'device_name': self.device_name,
+            'poses': self.poses,
+            'velocities': self.velocities,
+            'imu_times': self.imu_times,
+            'gyros': self.gyros,
+            'accels': self.accels,
+            'raw_imu_times': self.raw_imu_times,
+            'raw_gyros': self.raw_gyros,
+            'raw_accels': self.raw_accels,
+            'angles': dict(self.angles),
+            'lengths': dict(self.lengths),
+            'light_data': dict(self.light_data),
+            'button_events': self.button_events,
+            'lighthouse_data': dict(self.lighthouse_data),
+            'config_data': self.config_data,
+            'datalogs': dict(self.datalogs),
+            'last_update': self.last_update
+        }

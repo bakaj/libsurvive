@@ -8,6 +8,7 @@ It supports all standard libsurvive data types and formats.
 
 from typing import List, Dict, Any
 from .telemetry_data import TelemetryData
+from .system_data import SystemInfo
 
 
 class MessageParser:
@@ -21,6 +22,7 @@ class MessageParser:
     def __init__(self):
         """Initialize the message parser."""
         self.parse_errors = 0
+        self.system_info = SystemInfo()
     
     def parse_message(self, message: str, timestamp: float, device: TelemetryData) -> None:
         """
@@ -38,8 +40,14 @@ class MessageParser:
                 self.parse_errors += 1
                 return
             
+            device_name = parts[1]
             data_type = parts[2]
             data_values = parts[3:] if len(parts) > 3 else []
+            
+            # Handle system messages separately
+            if device_name in ['INFO', 'OPTION', 'LH_UP', 'SPHERE']:
+                self._handle_system_message(device_name, data_type, data_values, timestamp)
+                return
             
             # Update device timestamp
             device.last_update = timestamp
@@ -50,6 +58,53 @@ class MessageParser:
         except Exception as e:
             self.parse_errors += 1
             print(f"Error parsing message '{message}': {e}")
+    
+    def _handle_system_message(self, device_name: str, data_type: str, data_values: List[str], timestamp: float) -> None:
+        """
+        Handle system-level messages (INFO, LH_UP, etc.).
+        
+        Args:
+            device_name (str): Name of the system message type
+            data_type (str): Type of system message
+            data_values (List[str]): Message data values
+            timestamp (float): Message timestamp
+        """
+        if device_name == 'INFO':
+            if data_type == 'LOG':
+                # INFO LOG: system log message
+                self.system_info.add_info_log(timestamp, data_values)
+        elif device_name == 'OPTION':
+            # OPTION: configuration option with type and value
+            if len(data_values) >= 3:
+                option_name = data_values[0]
+                option_type = data_values[1]  # 'b', 'i', 'f', 's'
+                option_value = data_values[2] if len(data_values) > 2 else None
+                
+                # Handle special case where value might be missing
+                if option_value is None:
+                    option_value = ""  # Empty string for missing values
+                
+                self.system_info.add_config_option(option_name, option_type, option_value, timestamp)
+        elif device_name == 'LH_UP':
+            # LH_UP: lighthouse update message
+            # Format: LH_UP lighthouse_id mode accel_x accel_y accel_z
+            if len(data_values) >= 4:
+                lighthouse_id = int(float(data_values[0]))  # Handle float lighthouse_id
+                mode = int(float(data_values[1]))  # Handle float mode
+                accel_data = [float(x) for x in data_values[2:5]]  # accel_x, accel_y, accel_z
+                
+                self.system_info.add_lighthouse_update(lighthouse_id, timestamp, mode, accel_data)
+        elif device_name == 'SPHERE':
+            # SPHERE: estimated position from MPFIT algorithm
+            # Format: SPHERE device_pair radius confidence x y z
+            if len(data_values) >= 5:
+                device_pair = data_values[0]  # e.g., 'WM1_2', 'WM0_2'
+                radius = float(data_values[1])
+                confidence = float(data_values[2])
+                position = [float(x) for x in data_values[3:6]]  # x, y, z
+                
+                self.system_info.add_sphere_estimate(device_pair, timestamp, radius, confidence, position)
+        # Add other system message types as needed
     
     def _process_data_type(self, device: TelemetryData, data_type: str, 
                           data_values: List[str], timestamp: float) -> None:
@@ -281,3 +336,7 @@ class MessageParser:
     def get_parse_errors(self) -> int:
         """Get the number of parse errors encountered."""
         return self.parse_errors
+    
+    def get_system_info(self) -> SystemInfo:
+        """Get the system information container."""
+        return self.system_info

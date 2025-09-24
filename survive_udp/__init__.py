@@ -24,11 +24,15 @@ Usage:
 from .telemetry_data import TelemetryData
 from .udp_receiver import UDPTelemetryReceiver, JupyterUDPReceiver
 from .message_parser import MessageParser
+from .system_data import SystemInfo, TelemetrySystem, ConfigOption
 
 __version__ = "1.0.0"
 __all__ = [
     "TelemetryData",
     "UDPTelemetryReceiver", 
     "JupyterUDPReceiver",
-    "MessageParser"
+    "MessageParser",
+    "SystemInfo",
+    "TelemetrySystem",
+    "ConfigOption"
 ]

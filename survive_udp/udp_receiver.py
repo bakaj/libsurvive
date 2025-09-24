@@ -11,10 +11,10 @@ import socket
 import time
 import threading
 from typing import Dict, List, Optional, Tuple, Any, Callable
-from collections import defaultdict
 
 from .telemetry_data import TelemetryData
 from .message_parser import MessageParser
+from .system_data import TelemetrySystem
 
 
 class UDPTelemetryReceiver:
@@ -62,7 +62,7 @@ class UDPTelemetryReceiver:
         self.running = False
         
         # Data storage
-        self.devices: Dict[str, TelemetryData] = {}
+        self.telemetry_system = TelemetrySystem()
         self.callbacks: List[Callable] = []
         
         # Parser
@@ -170,14 +170,16 @@ class UDPTelemetryReceiver:
             data_type = parts[2]
             data_values = parts[3:] if len(parts) > 3 else []
             
-            # Get or create device
-            if device_name not in self.devices:
-                self.devices[device_name] = TelemetryData(device_name)
-            
-            device = self.devices[device_name]
-            
-            # Parse message
-            self.parser.parse_message(message, timestamp, device)
+            # Check if this is a device or system message
+            if self.telemetry_system.is_device_name(device_name):
+                # Get or create device
+                device = self.telemetry_system.add_device(device_name)
+                
+                # Parse message
+                self.parser.parse_message(message, timestamp, device)
+            else:
+                # Handle system messages
+                self.parser.parse_message(message, timestamp, None)
             
             # Update statistics
             self.stats['messages_received'] += 1
@@ -214,7 +216,7 @@ class UDPTelemetryReceiver:
         Returns:
             List[str]: List of device names that have received data
         """
-        return list(self.devices.keys())
+        return self.telemetry_system.get_active_devices()
     
     def get_device(self, device_name: str) -> Optional[TelemetryData]:
         """
@@ -226,7 +228,7 @@ class UDPTelemetryReceiver:
         Returns:
             Optional[TelemetryData]: Device data or None if not found
         """
-        return self.devices.get(device_name)
+        return self.telemetry_system.get_device(device_name)
     
     def get_all_devices(self) -> Dict[str, TelemetryData]:
         """
@@ -235,7 +237,7 @@ class UDPTelemetryReceiver:
         Returns:
             Dict[str, TelemetryData]: Dictionary mapping device names to their data
         """
-        return self.devices.copy()
+        return self.telemetry_system.devices.copy()
     
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -250,11 +252,15 @@ class UDPTelemetryReceiver:
         return {
             'messages_received': self.stats['messages_received'],
             'parse_errors': self.stats['parse_errors'],
-            'active_devices': len(self.devices),
+            'active_devices': len(self.telemetry_system.devices),
             'runtime_seconds': runtime,
             'messages_per_second': self.stats['messages_received'] / runtime if runtime > 0 else 0,
             'last_message_time': self.stats['last_message_time']
         }
+    
+    def get_system_info(self):
+        """Get system information and logs."""
+        return self.parser.get_system_info()
     
     def export_data(self) -> Dict[str, Any]:
         """
@@ -263,11 +269,7 @@ class UDPTelemetryReceiver:
         Returns:
             Dict[str, Any]: Complete telemetry data export
         """
-        return {
-            'devices': {name: device for name, device in self.devices.items()},
-            'statistics': self.get_stats(),
-            'export_time': time.time()
-        }
+        return self.telemetry_system.export_data()
 
 
 class JupyterUDPReceiver:
@@ -314,7 +316,7 @@ class JupyterUDPReceiver:
         self.receive_thread = None
         
         # Data storage
-        self.devices: Dict[str, TelemetryData] = {}
+        self.telemetry_system = TelemetrySystem()
         self.callbacks: List[Callable] = []
         
         # Parser
@@ -422,14 +424,16 @@ class JupyterUDPReceiver:
             data_type = parts[2]
             data_values = parts[3:] if len(parts) > 3 else []
             
-            # Get or create device
-            if device_name not in self.devices:
-                self.devices[device_name] = TelemetryData(device_name)
-            
-            device = self.devices[device_name]
-            
-            # Parse message
-            self.parser.parse_message(message, timestamp, device)
+            # Check if this is a device or system message
+            if self.telemetry_system.is_device_name(device_name):
+                # Get or create device
+                device = self.telemetry_system.add_device(device_name)
+                
+                # Parse message
+                self.parser.parse_message(message, timestamp, device)
+            else:
+                # Handle system messages
+                self.parser.parse_message(message, timestamp, None)
             
             # Update statistics
             self.stats['messages_received'] += 1
@@ -463,7 +467,7 @@ class JupyterUDPReceiver:
         Returns:
             List[str]: List of device names that have received data
         """
-        return list(self.devices.keys())
+        return self.telemetry_system.get_active_devices()
     
     def get_device(self, device_name: str) -> Optional[TelemetryData]:
         """
@@ -475,7 +479,7 @@ class JupyterUDPReceiver:
         Returns:
             Optional[TelemetryData]: Device data or None if not found
         """
-        return self.devices.get(device_name)
+        return self.telemetry_system.get_device(device_name)
     
     def get_all_devices(self) -> Dict[str, TelemetryData]:
         """
@@ -484,7 +488,7 @@ class JupyterUDPReceiver:
         Returns:
             Dict[str, TelemetryData]: Dictionary mapping device names to their data
         """
-        return self.devices.copy()
+        return self.telemetry_system.devices.copy()
     
     def get_latest_data(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -494,7 +498,7 @@ class JupyterUDPReceiver:
             Dict[str, Dict[str, Any]]: Latest data for each device
         """
         latest_data = {}
-        for device_name, device in self.devices.items():
+        for device_name, device in self.telemetry_system.devices.items():
             latest_data[device_name] = {
                 'pose_count': len(device.poses),
                 'imu_count': len(device.imu_times),
@@ -516,11 +520,15 @@ class JupyterUDPReceiver:
         return {
             'messages_received': self.stats['messages_received'],
             'parse_errors': self.stats['parse_errors'],
-            'active_devices': len(self.devices),
+            'active_devices': len(self.telemetry_system.devices),
             'runtime_seconds': runtime,
             'messages_per_second': self.stats['messages_received'] / runtime if runtime > 0 else 0,
             'last_message_time': self.stats['last_message_time']
         }
+    
+    def get_system_info(self):
+        """Get system information and logs."""
+        return self.parser.get_system_info()
     
     def export_data(self) -> Dict[str, Any]:
         """
@@ -529,8 +537,4 @@ class JupyterUDPReceiver:
         Returns:
             Dict[str, Any]: Complete telemetry data export
         """
-        return {
-            'devices': {name: device for name, device in self.devices.items()},
-            'statistics': self.get_stats(),
-            'export_time': time.time()
-        }
+        return self.telemetry_system.export_data()
