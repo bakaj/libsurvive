@@ -831,6 +831,9 @@ int survive_add_object(SurviveContext *ctx, SurviveObject *obj) {
 	ctx->objs_ct = oldct + 1;
 
 	SURVIVE_INVOKE_HOOK_SO(new_object, obj);
+	if (obj->serial_number[0] != '\0') {
+		SV_INFO("Device %s serial_number when added to context: %s", survive_colorize(obj->codename), obj->serial_number);
+	}
 
 	return 0;
 }

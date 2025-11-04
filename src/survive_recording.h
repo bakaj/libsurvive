@@ -38,6 +38,7 @@ SURVIVE_EXPORT void survive_recording_write_to_output_nopreamble(struct SurviveR
 void survive_destroy_recording(SurviveContext *ctx);
 void survive_install_recording(SurviveContext *ctx);
 void survive_recording_config_process(SurviveObject *so, char *ct0conf, int len);
+void survive_recording_serial_number_process(SurviveObject *so);
 
 void survive_recording_lighthouse_process(SurviveContext *ctx, uint8_t lighthouse, const SurvivePose *lh_pose);
 void survive_recording_lightcap(SurviveObject *so, LightcapElement *le);

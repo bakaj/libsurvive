@@ -335,6 +335,9 @@ static int process_jsontok(scratch_space_t *scratch, char *d, stack_entry_t *sta
 					size = t->end - t->start;
 
 				memcpy(scratch->so->serial_number, d + t->start, size);
+				scratch->so->serial_number[sizeof(scratch->so->serial_number) - 1] = '\0';
+				SurviveContext *ctx = scratch->so->ctx;
+				SV_INFO("Device %s serial_number set to: %s", survive_colorize(scratch->so->codename), scratch->so->serial_number);
 			} else if (jsoneq(d, stack->key, "model_number") == 0) {
 
 				const char *str = d + t->start;
@@ -492,6 +495,9 @@ int survive_load_htc_config_format(SurviveObject *so, char *ct0conf, int len) {
 	SV_VERBOSE(110, "Device %s has acc bias  " Point3_format " scale " Point3_format, survive_colorize_codename(so),
 			   LINMATH_VEC3_EXPAND(so->acc_bias), LINMATH_VEC3_EXPAND(so->acc_scale));
 	SV_VERBOSE(50, "Read config for %s", survive_colorize(so->codename));
+	if (so->serial_number[0] != '\0') {
+		SV_INFO("Device %s serial_number at end of config parsing: %s", survive_colorize(so->codename), so->serial_number);
+	}
 	jsmn_free(&p);
 	return 0;
 }

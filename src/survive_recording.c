@@ -250,6 +250,16 @@ void survive_recording_config_process(SurviveObject *so, char *ct0conf, int len)
 	free(buffer);
 }
 
+void survive_recording_serial_number_process(SurviveObject *so) {
+	SurviveRecordingData *recordingData = so->ctx ? so->ctx->recptr : 0;
+	if (recordingData == 0)
+		return;
+
+	if (so->serial_number[0] != '\0') {
+		survive_recording_write_to_output(recordingData, "%s SERIAL_NUMBER %s\r\n", so->codename, so->serial_number);
+	}
+}
+
 void survive_recording_lighthouse_process(SurviveContext *ctx, uint8_t lighthouse, const SurvivePose *lh_pose) {
 	SurviveRecordingData *recordingData = ctx->recptr;
 	if (recordingData == 0)

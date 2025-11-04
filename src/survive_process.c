@@ -264,6 +264,7 @@ int survive_default_config_process(SurviveObject *so, char *ct0conf, int len) {
 	so->conf_cnt = len;
 
 	int rtn = survive_load_htc_config_format(so, ct0conf, len);
+	survive_recording_serial_number_process(so);
 	if (survive_configi(so->ctx, "serialize-device-config", SC_GET, 0) != 0) {
 		for (int i = 0; i < 2; i++) {
 			char raw_fname[128];
