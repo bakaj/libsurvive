@@ -542,13 +542,19 @@ static FLT handle_optimizer_results(survive_optimizer *mpfitctx, int res, const 
 			SurvivePose cameras[NUM_GEN2_LIGHTHOUSES] = {0};
 			FLT variances[NUM_GEN2_LIGHTHOUSES] = {0};
 
-			// Record arbitrary-space poses directly (before transformations) - this is the "super raw" pose
+			// Record trackref-space poses (original tracker geometry frame)
+			// The optimizer uses sensor_locations which are stored in IMU space, so
+			// opt_cameras[i] is object2lh where object is in IMU space.
+			// We need to transform lh2imu to trackref space.
 			// The function checks the flag internally, so we can always call it
 			for (int i = 0; i < mpfitctx->cameraLength; i++) {
 				if (has_data_for_lh(meas_for_lhs_axis, i) > 0 && !quatiszero(opt_cameras[i].Rot)) {
-					// opt_cameras[i] is object2lh, invert to get lh2object (arbitrary space)
-					SurvivePose lh2arb = InvertPoseRtn(&opt_cameras[i]);
-					survive_recording_lighthouse_arbitrary_process(so, i, &lh2arb);
+					// opt_cameras[i] is object2lh, invert to get lh2object (IMU space)
+					SurvivePose lh2imu = InvertPoseRtn(&opt_cameras[i]);
+					// Transform from IMU space to trackref space
+					SurvivePose lh2trackref;
+					ApplyPoseToPose(&lh2trackref, &so->imu2trackref, &lh2imu);
+					survive_recording_lighthouse_arbitrary_process(so, i, &lh2trackref);
 				}
 			}
 

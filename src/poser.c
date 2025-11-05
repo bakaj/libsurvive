@@ -158,8 +158,14 @@ void PoserData_lighthouse_pose_func(PoserData *poser_data, SurviveObject *so, ui
 			object2arb = *object_pose;
 		SurvivePose lighthouse2arb = *lighthouse_pose;
 
-		// Record arbitrary-space pose directly (before any transformations) - this is the "super raw" pose
-		survive_recording_lighthouse_arbitrary_process(so, lighthouse, &lighthouse2arb);
+		// Transform from IMU space (optimizer's object space) to trackref space
+		// The optimizer uses sensor_locations which are stored in IMU space, so
+		// lighthouse2arb is actually lh2imu. We need to transform to trackref space.
+		SurvivePose lighthouse2trackref;
+		ApplyPoseToPose(&lighthouse2trackref, &so->imu2trackref, &lighthouse2arb);
+
+		// Record trackref-space pose (original tracker geometry frame)
+		survive_recording_lighthouse_arbitrary_process(so, lighthouse, &lighthouse2trackref);
 
 		SurvivePose obj2world, lighthouse2world;
 		// Purposefully only set this once. It should only depend on the first (calculated) lighthouse
