@@ -654,6 +654,8 @@ SURVIVE_EXPORT void survive_default_lighthouse_pose_process(SurviveContext *ctx,
 
 // Tracker-fixed coordinate system functions (based on sensor geometry)
 SURVIVE_EXPORT void calculate_tracker_fixed_frame(SurviveObject *so, SurvivePose *arb2tracker_fixed);
+SURVIVE_EXPORT void calculate_tracker_fixed_frame_from_positions(const LinmathPoint3d *sensor_positions, size_t sensor_count, SurvivePose *arb2tracker_fixed);
+SURVIVE_EXPORT void store_tracker_fixed_frame(SurviveObject *so, const SurvivePose *arb2tracker_fixed);
 SURVIVE_EXPORT void transform_to_tracker_fixed(const SurvivePose *lh2object, 
 											   const SurvivePose *arb2tracker_fixed,
 											   SurvivePose *lh2tracker_fixed);

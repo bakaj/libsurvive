@@ -315,6 +315,17 @@ void survive_recording_lighthouse_tracker_fixed_process(SurviveObject *so, uint8
 		lh_pose->Pos[0], lh_pose->Pos[1], lh_pose->Pos[2], lh_pose->Rot[0], lh_pose->Rot[1], lh_pose->Rot[2],
 		lh_pose->Rot[3], so->ctx->bsd[lighthouse].BaseStationID);
 }
+
+// Helper functions to check recording flags
+bool survive_recording_write_lh_object_space_enabled(const struct SurviveRecordingData *recordingData) {
+	if (!recordingData) return false;
+	return ((SurviveRecordingData *)recordingData)->writeLHObjectSpace;
+}
+
+bool survive_recording_write_lh_tracker_fixed_enabled(const struct SurviveRecordingData *recordingData) {
+	if (!recordingData) return false;
+	return ((SurviveRecordingData *)recordingData)->writeLHTrackerFixed;
+}
 void survive_recording_velocity_process(SurviveObject *so, uint8_t lighthouse, const SurviveVelocity *pose) {
 	SurviveRecordingData *recordingData = so->ctx->recptr;
 	if (recordingData == 0)

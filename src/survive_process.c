@@ -50,7 +50,7 @@ void survive_default_pose_process(SurviveObject *so, survive_long_timecode timec
 	
 	// Record lighthouse poses in object space for normal tracking frames
 	// Calculate lighthouse2object from world-space poses
-	if (so->ctx->recptr && so->ctx->recptr->writeLHObjectSpace && !quatiszero(pose->Rot)) {
+	if (survive_recording_write_lh_object_space_enabled(so->ctx->recptr) && !quatiszero(pose->Rot)) {
 		SurviveContext *ctx = so->ctx;
 		SurvivePose object2world = *pose;
 		
@@ -77,7 +77,7 @@ void survive_default_pose_process(SurviveObject *so, survive_long_timecode timec
 
 	// Record lighthouse poses in tracker-fixed coordinate system for normal tracking frames
 	// This runs every time raw pose is recorded, giving us tracker-based "super raw" poses
-	if (so->ctx->recptr && so->ctx->recptr->writeLHTrackerFixed && !quatiszero(pose->Rot)) {
+	if (survive_recording_write_lh_tracker_fixed_enabled(so->ctx->recptr) && !quatiszero(pose->Rot)) {
 		SurviveContext *ctx = so->ctx;
 		SurvivePose object2world = *pose;
 		
@@ -85,16 +85,9 @@ void survive_default_pose_process(SurviveObject *so, survive_long_timecode timec
 		SurvivePose world2object;
 		InvertPose(&world2object, &object2world);
 		
-		// Calculate tracker-fixed frame (cached per object)
-		static SurvivePose arb2tracker_fixed_cache = {0};
-		static SurviveObject *cached_so = 0;
-		static bool frame_calculated = false;
-		
-		if (cached_so != so || !frame_calculated) {
-			calculate_tracker_fixed_frame(so, &arb2tracker_fixed_cache);
-			cached_so = so;
-			frame_calculated = true;
-		}
+		// Get tracker-fixed frame from cache (calculated during device loading, no transform needed)
+		SurvivePose arb2tracker_fixed_cache;
+		calculate_tracker_fixed_frame(so, &arb2tracker_fixed_cache);
 		
 		// For each active lighthouse with a valid position, calculate its pose in tracker-fixed space
 		for (int lh = 0; lh < ctx->activeLighthouses; lh++) {

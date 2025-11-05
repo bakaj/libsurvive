@@ -64,11 +64,55 @@ void survive_covariance_poseAA2pose(struct CnMat *R_q, const LinmathAxisAnglePos
 	gemm_ABAt_add_scaled(R_q, &G, R_aa, 0, 1, 1, 0);
 }
 
+// Cache for tracker-fixed frames (calculated once during device loading)
+#define MAX_CACHED_TRACKERS 16
+static struct {
+	SurviveObject *so;
+	SurvivePose arb2tracker_fixed;
+	bool valid;
+} tracker_fixed_cache[MAX_CACHED_TRACKERS] = {0};
+static int tracker_fixed_cache_count = 0;
+
+// Store tracker-fixed frame in cache (called during device loading)
+SURVIVE_EXPORT void store_tracker_fixed_frame(SurviveObject *so, const SurvivePose *arb2tracker_fixed) {
+	// Find existing entry or free slot
+	int idx = -1;
+	for (int i = 0; i < tracker_fixed_cache_count; i++) {
+		if (tracker_fixed_cache[i].so == so) {
+			idx = i;
+			break;
+		}
+	}
+	if (idx == -1) {
+		if (tracker_fixed_cache_count < MAX_CACHED_TRACKERS) {
+			idx = tracker_fixed_cache_count++;
+		} else {
+			// Cache full - should not happen with normal usage
+			return;
+		}
+	}
+	
+	tracker_fixed_cache[idx].so = so;
+	tracker_fixed_cache[idx].arb2tracker_fixed = *arb2tracker_fixed;
+	tracker_fixed_cache[idx].valid = true;
+}
+
+// Get tracker-fixed frame from cache (returns true if found, false otherwise)
+static bool get_tracker_fixed_frame_from_cache(SurviveObject *so, SurvivePose *arb2tracker_fixed) {
+	for (int i = 0; i < tracker_fixed_cache_count; i++) {
+		if (tracker_fixed_cache[i].so == so && tracker_fixed_cache[i].valid) {
+			*arb2tracker_fixed = tracker_fixed_cache[i].arb2tracker_fixed;
+			return true;
+		}
+	}
+	return false;
+}
+
 // Calculate tracker-fixed coordinate frame from sensor positions using PCA
 // Takes sensor positions in trackref space (original tracker geometry frame)
 // This ensures the coordinate system is based on physical tracker geometry, not IMU orientation
 // This function can be called during device loading when positions are still in trackref space (avoiding double transform)
-static void calculate_tracker_fixed_frame_from_positions(const LinmathPoint3d *sensor_positions, size_t sensor_count, SurvivePose *arb2tracker_fixed) {
+SURVIVE_EXPORT void calculate_tracker_fixed_frame_from_positions(const LinmathPoint3d *sensor_positions, size_t sensor_count, SurvivePose *arb2tracker_fixed) {
 	if (sensor_count < 3) {
 		// Not enough sensors to define a coordinate frame
 		*arb2tracker_fixed = (SurvivePose){.Rot = {1.}};
@@ -137,9 +181,15 @@ static void calculate_tracker_fixed_frame_from_positions(const LinmathPoint3d *s
 	scale3d(arb2tracker_fixed->Pos, centroid, -1.0);
 }
 
-// Wrapper that works with SurviveObject - transforms from IMU space to trackref space if needed
+// Wrapper that works with SurviveObject - checks cache first, then calculates if needed
 // Made non-static so it can be called from survive_process.c for regular pose updates
 SURVIVE_EXPORT void calculate_tracker_fixed_frame(SurviveObject *so, SurvivePose *arb2tracker_fixed) {
+	// First check cache (avoids transform if frame was calculated during device loading)
+	if (get_tracker_fixed_frame_from_cache(so, arb2tracker_fixed)) {
+		return;
+	}
+	
+	// Not in cache - calculate now (fallback if not calculated during device loading)
 	if (!so->has_sensor_locations || so->sensor_ct < 3) {
 		*arb2tracker_fixed = (SurvivePose){.Rot = {1.}};
 		return;
@@ -148,11 +198,14 @@ SURVIVE_EXPORT void calculate_tracker_fixed_frame(SurviveObject *so, SurvivePose
 	// Transform sensor positions from IMU space back to trackref space
 	LinmathPoint3d *sensor_positions_trackref = (LinmathPoint3d *)alloca(sizeof(LinmathPoint3d) * so->sensor_ct);
 	for (int i = 0; i < so->sensor_ct; i++) {
-		ApplyPoseToPoint(&sensor_positions_trackref[i], &so->imu2trackref, &so->sensor_locations[i * 3]);
+		ApplyPoseToPoint(sensor_positions_trackref[i], &so->imu2trackref, &so->sensor_locations[i * 3]);
 	}
 
 	// Calculate using trackref-space positions
 	calculate_tracker_fixed_frame_from_positions(sensor_positions_trackref, so->sensor_ct, arb2tracker_fixed);
+	
+	// Store in cache for future use
+	store_tracker_fixed_frame(so, arb2tracker_fixed);
 }
 
 // Transform lighthouse pose from object space (arbitrary frame) to tracker-fixed space
@@ -270,22 +323,15 @@ void PoserData_lighthouse_pose_func(PoserData *poser_data, SurviveObject *so, ui
 			SurvivePose lighthouse2obj;
 			ApplyPoseToPose(&lighthouse2obj, &arb2object, &lighthouse2arb);
 
-			if (so->ctx->recptr && so->ctx->recptr->writeLHObjectSpace) {
+			if (survive_recording_write_lh_object_space_enabled(so->ctx->recptr)) {
 				survive_recording_lighthouse_object_space_normal(so, lighthouse, &lighthouse2obj);
 			}
 
-			// NEW ADDITIVE CODE: Record tracker-fixed poses if enabled
-			if (so->ctx->recptr && so->ctx->recptr->writeLHTrackerFixed) {
-				// Calculate tracker-fixed frame (cached per object pointer)
-				static SurvivePose arb2tracker_fixed_cache = {0};
-				static SurviveObject *cached_so = 0;
-				static bool frame_calculated = false;
-				
-				if (cached_so != so || !frame_calculated) {
-					calculate_tracker_fixed_frame(so, &arb2tracker_fixed_cache);
-					cached_so = so;
-					frame_calculated = true;
-				}
+		// NEW ADDITIVE CODE: Record tracker-fixed poses if enabled
+		if (survive_recording_write_lh_tracker_fixed_enabled(so->ctx->recptr)) {
+			// Get tracker-fixed frame from cache (calculated during device loading, no transform needed)
+			SurvivePose arb2tracker_fixed_cache;
+			calculate_tracker_fixed_frame(so, &arb2tracker_fixed_cache);
 				
 				// Transform to tracker-fixed
 				SurvivePose lh2tracker_fixed;
@@ -450,14 +496,14 @@ void PoserData_lighthouse_poses_func(PoserData *poser_data, SurviveObject *so, S
 			
 			// Record lighthouse pose in object space for every frame/update
 			// lighthouse_pose[lighthouse] is already in object space when passed to custom callback
-			if (so->ctx->recptr && so->ctx->recptr->writeLHObjectSpace) {
+			if (survive_recording_write_lh_object_space_enabled(so->ctx->recptr)) {
 				SurvivePose lh2object = lighthouse_pose[lighthouse];
 				quatnormalize(lh2object.Rot, lh2object.Rot);
 				survive_recording_lighthouse_object_space_normal(so, lighthouse, &lh2object);
 			}
 
 			// NEW ADDITIVE CODE: Record tracker-fixed poses if enabled
-			if (so->ctx->recptr && so->ctx->recptr->writeLHTrackerFixed) {
+						if (survive_recording_write_lh_tracker_fixed_enabled(so->ctx->recptr)) {
 				SurvivePose lh2object = lighthouse_pose[lighthouse];
 				quatnormalize(lh2object.Rot, lh2object.Rot);
 				
@@ -524,22 +570,15 @@ void PoserData_lighthouse_poses_func(PoserData *poser_data, SurviveObject *so, S
 			quatnormalize(lh2object.Rot, lh2object.Rot);
 
 			// Record lighthouse pose in object space for every frame/update
-			if (so->ctx->recptr && so->ctx->recptr->writeLHObjectSpace) {
+			if (survive_recording_write_lh_object_space_enabled(so->ctx->recptr)) {
 				survive_recording_lighthouse_object_space_normal(so, lh, &lh2object);
 			}
 
-			// NEW ADDITIVE CODE: Record tracker-fixed poses if enabled
-			if (so->ctx->recptr && so->ctx->recptr->writeLHTrackerFixed) {
-				// Calculate tracker-fixed frame (cached per object pointer)
-				static SurvivePose arb2tracker_fixed_cache = {0};
-				static SurviveObject *cached_so = 0;
-				static bool frame_calculated = false;
-				
-				if (cached_so != so || !frame_calculated) {
-					calculate_tracker_fixed_frame(so, &arb2tracker_fixed_cache);
-					cached_so = so;
-					frame_calculated = true;
-				}
+		// NEW ADDITIVE CODE: Record tracker-fixed poses if enabled
+		if (survive_recording_write_lh_tracker_fixed_enabled(so->ctx->recptr)) {
+			// Get tracker-fixed frame from cache (calculated during device loading, no transform needed)
+			SurvivePose arb2tracker_fixed_cache;
+			calculate_tracker_fixed_frame(so, &arb2tracker_fixed_cache);
 				
 				// Transform to tracker-fixed
 				SurvivePose lh2tracker_fixed;

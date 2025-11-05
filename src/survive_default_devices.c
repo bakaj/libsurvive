@@ -427,22 +427,56 @@ int survive_load_htc_config_format(SurviveObject *so, char *ct0conf, int len) {
 
 	SurvivePose trackref2imu = InvertPoseRtn(&so->imu2trackref);
 
-	bool sensorsAreZero = true;
-	for (int i = 0; i < so->sensor_ct; i++) {
-		if (norm3d(&so->sensor_locations[i]) > .001) {
-			sensorsAreZero = false;
+	// Calculate tracker-fixed frame BEFORE transforming to IMU space (positions are in trackref space)
+	// This avoids any transform overhead - we calculate once and cache it
+	SurvivePose arb2tracker_fixed = {0};
+	if (so->sensor_ct >= 3 && so->sensor_locations) {
+		// Store trackref-space positions before transformation
+		LinmathPoint3d *sensor_positions_trackref = (LinmathPoint3d *)SV_MALLOC(sizeof(LinmathPoint3d) * so->sensor_ct);
+		
+		bool sensorsAreZero = true;
+		for (int i = 0; i < so->sensor_ct; i++) {
+			if (norm3d(&so->sensor_locations[i]) > .001) {
+				sensorsAreZero = false;
+			}
+			if (scratch.sensor_scale != 0.0) {
+				scale3d(&so->sensor_locations[i * 3], &so->sensor_locations[i * 3], scratch.sensor_scale);
+			}
+			
+			// Save trackref-space positions before transformation
+			sensor_positions_trackref[i][0] = so->sensor_locations[i * 3];
+			sensor_positions_trackref[i][1] = so->sensor_locations[i * 3 + 1];
+			sensor_positions_trackref[i][2] = so->sensor_locations[i * 3 + 2];
+			
+			// Transform to IMU space (for use in rest of system)
+			ApplyPoseToPoint(&so->sensor_locations[i * 3], &trackref2imu, &so->sensor_locations[i * 3]);
+			quatrotatevector(&so->sensor_normals[i * 3], trackref2imu.Rot, &so->sensor_normals[i * 3]);
 		}
-		if (scratch.sensor_scale != 0.0) {
-			scale3d(&so->sensor_locations[i * 3], &so->sensor_locations[i * 3], scratch.sensor_scale);
+		
+		// Calculate tracker-fixed frame using trackref-space positions (no transform needed!)
+		// Forward declaration - function is in poser.c
+		extern void calculate_tracker_fixed_frame_from_positions(const LinmathPoint3d *sensor_positions, size_t sensor_count, SurvivePose *arb2tracker_fixed);
+		extern void store_tracker_fixed_frame(SurviveObject *so, const SurvivePose *arb2tracker_fixed);
+		
+		calculate_tracker_fixed_frame_from_positions(sensor_positions_trackref, so->sensor_ct, &arb2tracker_fixed);
+		store_tracker_fixed_frame(so, &arb2tracker_fixed);
+		
+		free(sensor_positions_trackref);
+		so->has_sensor_locations = !sensorsAreZero;
+	} else {
+		bool sensorsAreZero = true;
+		for (int i = 0; i < so->sensor_ct; i++) {
+			if (norm3d(&so->sensor_locations[i]) > .001) {
+				sensorsAreZero = false;
+			}
+			if (scratch.sensor_scale != 0.0) {
+				scale3d(&so->sensor_locations[i * 3], &so->sensor_locations[i * 3], scratch.sensor_scale);
+			}
+			ApplyPoseToPoint(&so->sensor_locations[i * 3], &trackref2imu, &so->sensor_locations[i * 3]);
+			quatrotatevector(&so->sensor_normals[i * 3], trackref2imu.Rot, &so->sensor_normals[i * 3]);
 		}
-		// Transform to IMU space (for use in rest of system)
-		// Note: Tracker-fixed frame calculation in poser.c will transform back to trackref space when needed
-		// This single transform (IMU->trackref) happens once per tracker and is cached, so it's acceptable
-		ApplyPoseToPoint(&so->sensor_locations[i * 3], &trackref2imu, &so->sensor_locations[i * 3]);
-		quatrotatevector(&so->sensor_normals[i * 3], trackref2imu.Rot, &so->sensor_normals[i * 3]);
+		so->has_sensor_locations = !sensorsAreZero;
 	}
-
-	so->has_sensor_locations = !sensorsAreZero;
 
 	ApplyPoseToPose(&so->head2imu, &trackref2imu, &so->head2trackref);
 

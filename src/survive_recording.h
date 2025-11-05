@@ -35,12 +35,19 @@ SURVIVE_EXPORT void survive_recording_write_to_output(struct SurviveRecordingDat
 													  ...);
 SURVIVE_EXPORT void survive_recording_write_to_output_nopreamble(struct SurviveRecordingData *recordingData,
 																 const char *format, ...);
+
+// Helper functions to check recording flags (allows accessing fields without exposing struct definition)
+SURVIVE_EXPORT bool survive_recording_write_lh_object_space_enabled(const struct SurviveRecordingData *recordingData);
+SURVIVE_EXPORT bool survive_recording_write_lh_tracker_fixed_enabled(const struct SurviveRecordingData *recordingData);
 void survive_destroy_recording(SurviveContext *ctx);
 void survive_install_recording(SurviveContext *ctx);
 void survive_recording_config_process(SurviveObject *so, char *ct0conf, int len);
 void survive_recording_serial_number_process(SurviveObject *so);
 
 void survive_recording_lighthouse_process(SurviveContext *ctx, uint8_t lighthouse, const SurvivePose *lh_pose);
+void survive_recording_lighthouse_object_space_calibration(SurviveObject *so, uint8_t lighthouse, const SurvivePose *lh_pose);
+void survive_recording_lighthouse_object_space_normal(SurviveObject *so, uint8_t lighthouse, const SurvivePose *lh_pose);
+void survive_recording_lighthouse_tracker_fixed_process(SurviveObject *so, uint8_t lighthouse, const SurvivePose *lh_pose);
 void survive_recording_lightcap(SurviveObject *so, LightcapElement *le);
 void survive_recording_raw_pose_process(SurviveObject *so, uint8_t lighthouse, const SurvivePose *pose);
 void survive_recording_velocity_process(SurviveObject *so, uint8_t lighthouse, const SurviveVelocity *velocity);
