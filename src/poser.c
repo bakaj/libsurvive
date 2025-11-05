@@ -152,7 +152,7 @@ void PoserData_lighthouse_pose_func(PoserData *poser_data, SurviveObject *so, ui
 		//
 		// We might want to go a step further and affix the first lighthouse in a given pose that preserves up so that
 		// it doesn't matter where on that surface the object is.
-		bool worldEstablished = quatmagnitude(object_pose->Rot) != 0;
+		bool worldEstablished = (object_pose && !quatiszero(object_pose->Rot));
 		SurvivePose object2arb = {.Rot = {1.}};
 		if (object_pose && !quatiszero(object_pose->Rot))
 			object2arb = *object_pose;
@@ -163,9 +163,10 @@ void PoserData_lighthouse_pose_func(PoserData *poser_data, SurviveObject *so, ui
 		// lighthouse2arb is actually lh2imu. We need to transform to trackref space.
 		SurvivePose lighthouse2trackref;
 		ApplyPoseToPose(&lighthouse2trackref, &so->imu2trackref, &lighthouse2arb);
+		quatnormalize(lighthouse2trackref.Rot, lighthouse2trackref.Rot);
 
 		// Record trackref-space pose (original tracker geometry frame)
-		survive_recording_lighthouse_arbitrary_process(so, lighthouse, &lighthouse2trackref);
+		survive_recording_lighthouse_trackref_process(so, lighthouse, &lighthouse2trackref);
 
 		SurvivePose obj2world, lighthouse2world;
 		// Purposefully only set this once. It should only depend on the first (calculated) lighthouse

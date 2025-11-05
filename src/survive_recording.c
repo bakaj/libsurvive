@@ -48,7 +48,7 @@ typedef struct SurviveRecordingData {
 	bool writeCalIMU;
 	bool writeAngle;
 	int writeDataMatrix;
-	bool writeLHArbitrary;
+	bool writeLHTrackref;
 	gzFile output_file;
 	
 	// UDP streaming fields
@@ -65,7 +65,7 @@ STRUCT_CONFIG_SECTION(SurviveRecordingData)
     STRUCT_CONFIG_ITEM("record-cal-imu", "Whether or not to output calibrated imu data", 0, t->writeCalIMU)
 	STRUCT_CONFIG_ITEM("record-angle", "Whether or not to output angle data", 1, t->writeAngle)
 	STRUCT_CONFIG_ITEM("record-data-matrices", "Whether or not to output data matrices", 0, t->writeDataMatrix)
-	STRUCT_CONFIG_ITEM("record-lh-arbitrary", "Whether or not to output lighthouse poses in arbitrary coordinate system", 0, t->writeLHArbitrary)
+	STRUCT_CONFIG_ITEM("record-lh-trackref", "Whether or not to output lighthouse poses in trackref coordinate system (original tracker geometry frame)", 0, t->writeLHTrackref)
 	STRUCT_CONFIG_ITEM("udp-stream", "Enable UDP streaming of recording data", 0, t->udpStreamEnabled)
 END_STRUCT_CONFIG_SECTION(SurviveRecordingData)
 	// clang-format on
@@ -275,14 +275,14 @@ void survive_recording_lighthouse_process(SurviveContext *ctx, uint8_t lighthous
 		lh_pose->Rot[3], ctx->bsd[lighthouse].BaseStationID);
 }
 
-SURVIVE_EXPORT void survive_recording_lighthouse_arbitrary_process(SurviveObject *so, uint8_t lighthouse, const SurvivePose *lh_pose) {
+SURVIVE_EXPORT void survive_recording_lighthouse_trackref_process(SurviveObject *so, uint8_t lighthouse, const SurvivePose *lh_pose) {
 	SurviveRecordingData *recordingData = so->ctx ? so->ctx->recptr : 0;
-	if (recordingData == 0 || !recordingData->writeLHArbitrary)
+	if (recordingData == 0 || !recordingData->writeLHTrackref)
 		return;
 
 	survive_recording_write_to_output(
 		recordingData,
-		"%s LH_POSE_ARBITRARY %d " FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF " %u\r\n",
+		"%s LH_POSE_TRACKREF %d " FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF " %u\r\n",
 		so->codename, lighthouse,
 		lh_pose->Pos[0], lh_pose->Pos[1], lh_pose->Pos[2], lh_pose->Rot[0], lh_pose->Rot[1], lh_pose->Rot[2],
 		lh_pose->Rot[3], so->ctx->bsd[lighthouse].BaseStationID);

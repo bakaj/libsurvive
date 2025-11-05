@@ -41,7 +41,7 @@ void survive_recording_config_process(SurviveObject *so, char *ct0conf, int len)
 void survive_recording_serial_number_process(SurviveObject *so);
 
 void survive_recording_lighthouse_process(SurviveContext *ctx, uint8_t lighthouse, const SurvivePose *lh_pose);
-void survive_recording_lighthouse_arbitrary_process(SurviveObject *so, uint8_t lighthouse, const SurvivePose *lh_pose);
+void survive_recording_lighthouse_trackref_process(SurviveObject *so, uint8_t lighthouse, const SurvivePose *lh_pose);
 void survive_recording_lightcap(SurviveObject *so, LightcapElement *le);
 void survive_recording_raw_pose_process(SurviveObject *so, uint8_t lighthouse, const SurvivePose *pose);
 void survive_recording_velocity_process(SurviveObject *so, uint8_t lighthouse, const SurviveVelocity *velocity);

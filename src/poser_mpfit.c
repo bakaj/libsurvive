@@ -490,9 +490,9 @@ void print_stats_results(SurviveContext* ctx, const survive_optimizer *mpfitctx,
 		result->orignorm, result->bestnorm, result->niter, survive_optimizer_error(result->status),
 		(int)mpfitctx->measurementsCnt, (int)mpfitctx->parametersCnt, result->nfree,
 		mpfitctx->cameraLength, mpfitctx->poseLength,
-		sqrtf(mpfitctx->stats.sensor_error / mpfitctx->stats.sensor_error_cnt),
-		sqrtf(mpfitctx->stats.object_up_error / mpfitctx->stats.object_up_error_cnt),
-		sqrtf(mpfitctx->stats.params_error / mpfitctx->stats.params_error_cnt));
+		mpfitctx->stats.sensor_error_cnt > 0 ? sqrtf(mpfitctx->stats.sensor_error / mpfitctx->stats.sensor_error_cnt) : 0.0f,
+		mpfitctx->stats.object_up_error_cnt > 0 ? sqrtf(mpfitctx->stats.object_up_error / mpfitctx->stats.object_up_error_cnt) : 0.0f,
+		mpfitctx->stats.params_error_cnt > 0 ? sqrtf(mpfitctx->stats.params_error / mpfitctx->stats.params_error_cnt) : 0.0f);
 }
 static FLT handle_optimizer_results(survive_optimizer *mpfitctx, int res, const mp_result *result,
 									struct async_optimizer_user *user_data, CnMat *R, SurvivePose *out) {
@@ -528,7 +528,7 @@ static FLT handle_optimizer_results(survive_optimizer *mpfitctx, int res, const 
 		return -1;
 	}
 	bool solvedLHPoses = false;
-	FLT sensor_error = sqrtf(mpfitctx->stats.sensor_error / mpfitctx->stats.sensor_error_cnt);
+	FLT sensor_error = mpfitctx->stats.sensor_error_cnt > 0 ? sqrtf(mpfitctx->stats.sensor_error / mpfitctx->stats.sensor_error_cnt) : 0.0f;
 	FLT norm_error = sensor_error; // result->bestnorm * d->sensor_variance * d->sensor_variance;
 	bool error_failure = !general_optimizer_data_record_success(&d->opt, norm_error, soLocation, canPossiblySolveLHS);
 	if (!status_failure && !error_failure) {
@@ -554,7 +554,8 @@ static FLT handle_optimizer_results(survive_optimizer *mpfitctx, int res, const 
 					// Transform from IMU space to trackref space
 					SurvivePose lh2trackref;
 					ApplyPoseToPose(&lh2trackref, &so->imu2trackref, &lh2imu);
-					survive_recording_lighthouse_arbitrary_process(so, i, &lh2trackref);
+					quatnormalize(lh2trackref.Rot, lh2trackref.Rot);
+					survive_recording_lighthouse_trackref_process(so, i, &lh2trackref);
 				}
 			}
 
@@ -628,9 +629,9 @@ static FLT handle_optimizer_results(survive_optimizer *mpfitctx, int res, const 
 			user_data->stats.old_measurements,
 			user_data->stats.old_measurements_age / 48000000. * 1000. / (.001 + user_data->stats.old_measurements),
 			d->stats.total_runs, scale,
-			sqrtf(mpfitctx->stats.sensor_error / mpfitctx->stats.sensor_error_cnt),
-			sqrtf(mpfitctx->stats.object_up_error / mpfitctx->stats.object_up_error_cnt),
-			sqrtf(mpfitctx->stats.params_error / mpfitctx->stats.params_error_cnt));
+			mpfitctx->stats.sensor_error_cnt > 0 ? sqrtf(mpfitctx->stats.sensor_error / mpfitctx->stats.sensor_error_cnt) : 0.0f,
+			mpfitctx->stats.object_up_error_cnt > 0 ? sqrtf(mpfitctx->stats.object_up_error / mpfitctx->stats.object_up_error_cnt) : 0.0f,
+			mpfitctx->stats.params_error_cnt > 0 ? sqrtf(mpfitctx->stats.params_error / mpfitctx->stats.params_error_cnt) : 0.0f);
 	} else {
 		SV_VERBOSE(
 			100,
@@ -644,8 +645,8 @@ static FLT handle_optimizer_results(survive_optimizer *mpfitctx, int res, const 
 			(int)meas_size, survive_optimizer_error(res), get_lh_count(meas_for_lhs_axis),
 			get_axis_count(meas_for_lhs_axis), canPossiblySolveLHS, d->opt.failures_since_success, d->stats.total_runs,
 			so->sensor_scale,
-			sqrtf(mpfitctx->stats.sensor_error / mpfitctx->stats.sensor_error_cnt),
-			sqrtf(mpfitctx->stats.params_error / mpfitctx->stats.params_error_cnt));
+			mpfitctx->stats.sensor_error_cnt > 0 ? sqrtf(mpfitctx->stats.sensor_error / mpfitctx->stats.sensor_error_cnt) : 0.0f,
+			mpfitctx->stats.params_error_cnt > 0 ? sqrtf(mpfitctx->stats.params_error / mpfitctx->stats.params_error_cnt) : 0.0f);
 
 		if (canPossiblySolveLHS && d->opt.failures_since_success > 10 && d->opt.stats.successes < 10 &&
 			(SurviveSensorActivations_stationary_time(&so->activations) > (48000000 / 10))) {
@@ -975,7 +976,7 @@ bool solve_global_scene(struct SurviveContext *ctx, MPFITData *d, PoserDataGloba
 	survive_recording_write_matrix(ctx->recptr, 0, 5, "GSS", &R);
 	bool status_failure = res <= 0;
 	FLT sensor_covariance = d->sensor_variance * d->sensor_variance;
-	FLT sensor_error = sqrtf(mpfitctx.stats.sensor_error / mpfitctx.stats.sensor_error_cnt);
+	FLT sensor_error = mpfitctx.stats.sensor_error_cnt > 0 ? sqrtf(mpfitctx.stats.sensor_error / mpfitctx.stats.sensor_error_cnt) : 0.0f;
 	if (status_failure || sensor_error > d->opt.max_cal_error) {
 		SV_WARN("MPFIT status failure %f/%f/%f (%d measurements, %d, %s)", result.orignorm, result.bestnorm,
 				sensor_error, (int)mpfitctx.measurementsCnt, res, survive_optimizer_error(res));
@@ -985,7 +986,7 @@ bool solve_global_scene(struct SurviveContext *ctx, MPFITData *d, PoserDataGloba
 		SV_INFO("MPFIT success %f/%10.10f/%7.7f (%d measurements, %d, %s, %d iters, up err %7.7f, trace %7.7f)",
 				result.orignorm, result.bestnorm, sensor_error, (int)mpfitctx.measurementsCnt, res,
 				survive_optimizer_error(res), result.niter,
-				mpfitctx.stats.object_up_error / mpfitctx.stats.object_up_error_cnt, cn_trace(&R) / R.rows);
+				mpfitctx.stats.object_up_error_cnt > 0 ? mpfitctx.stats.object_up_error / mpfitctx.stats.object_up_error_cnt : 0.0f, cn_trace(&R) / R.rows);
 
 		print_stats_results(ctx, &mpfitctx, &result, 100);
 
