@@ -47,6 +47,76 @@ void survive_default_pose_process(SurviveObject *so, survive_long_timecode timec
 	so->OutPose = *pose;
 	so->OutPose_timecode = timecode;
 	survive_recording_raw_pose_process(so, timecode, pose);
+	
+	// Record lighthouse poses in object space for normal tracking frames
+	// Calculate lighthouse2object from world-space poses
+	if (so->ctx->recptr && so->ctx->recptr->writeLHObjectSpace && !quatiszero(pose->Rot)) {
+		SurviveContext *ctx = so->ctx;
+		SurvivePose object2world = *pose;
+		
+		// Calculate inverse transformation from object to world
+		SurvivePose world2object;
+		InvertPose(&world2object, &object2world);
+		
+		// For each active lighthouse with a valid position, calculate its pose in object space
+		for (int lh = 0; lh < ctx->activeLighthouses; lh++) {
+			if (!ctx->bsd[lh].PositionSet)
+				continue;
+			
+			const SurvivePose *lh2world = survive_get_lighthouse_position(ctx, lh);
+			if (quatiszero(lh2world->Rot))
+				continue;
+			
+			// Transform lighthouse from world space to object space
+			SurvivePose lh2object;
+			ApplyPoseToPose(&lh2object, &world2object, lh2world);
+			
+			survive_recording_lighthouse_object_space_normal(so, lh, &lh2object);
+		}
+	}
+
+	// Record lighthouse poses in tracker-fixed coordinate system for normal tracking frames
+	// This runs every time raw pose is recorded, giving us tracker-based "super raw" poses
+	if (so->ctx->recptr && so->ctx->recptr->writeLHTrackerFixed && !quatiszero(pose->Rot)) {
+		SurviveContext *ctx = so->ctx;
+		SurvivePose object2world = *pose;
+		
+		// Calculate inverse transformation from object to world
+		SurvivePose world2object;
+		InvertPose(&world2object, &object2world);
+		
+		// Calculate tracker-fixed frame (cached per object)
+		static SurvivePose arb2tracker_fixed_cache = {0};
+		static SurviveObject *cached_so = 0;
+		static bool frame_calculated = false;
+		
+		if (cached_so != so || !frame_calculated) {
+			calculate_tracker_fixed_frame(so, &arb2tracker_fixed_cache);
+			cached_so = so;
+			frame_calculated = true;
+		}
+		
+		// For each active lighthouse with a valid position, calculate its pose in tracker-fixed space
+		for (int lh = 0; lh < ctx->activeLighthouses; lh++) {
+			if (!ctx->bsd[lh].PositionSet)
+				continue;
+			
+			const SurvivePose *lh2world = survive_get_lighthouse_position(ctx, lh);
+			if (quatiszero(lh2world->Rot))
+				continue;
+			
+			// Transform lighthouse from world space to object space
+			SurvivePose lh2object;
+			ApplyPoseToPose(&lh2object, &world2object, lh2world);
+			
+			// Transform from object space to tracker-fixed space
+			SurvivePose lh2tracker_fixed;
+			transform_to_tracker_fixed(&lh2object, &arb2tracker_fixed_cache, &lh2tracker_fixed);
+			
+			// Record tracker-fixed lighthouse pose (tracker-based "super raw" pose)
+			survive_recording_lighthouse_tracker_fixed_process(so, lh, &lh2tracker_fixed);
+		}
+	}
 }
 void survive_default_velocity_process(SurviveObject *so, survive_long_timecode timecode,
 									  const SurviveVelocity *velocity) {

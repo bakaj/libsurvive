@@ -559,6 +559,10 @@ static FLT handle_optimizer_results(survive_optimizer *mpfitctx, int res, const 
 
 			PoserData_lighthouse_poses_func(&pdl->hdr, so, cameras, R, ctx->activeLighthouses,
 											soLocation);
+			
+			// Note: Tracker-fixed recording is handled in PoserData_lighthouse_poses_func hooks
+			// No additional processing needed here
+			
 			solvedLHPoses = true;
 		}
 

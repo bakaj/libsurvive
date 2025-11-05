@@ -48,6 +48,8 @@ typedef struct SurviveRecordingData {
 	bool writeCalIMU;
 	bool writeAngle;
 	int writeDataMatrix;
+	bool writeLHObjectSpace;
+	bool writeLHTrackerFixed;
 	gzFile output_file;
 	
 	// UDP streaming fields
@@ -64,6 +66,8 @@ STRUCT_CONFIG_SECTION(SurviveRecordingData)
     STRUCT_CONFIG_ITEM("record-cal-imu", "Whether or not to output calibrated imu data", 0, t->writeCalIMU)
 	STRUCT_CONFIG_ITEM("record-angle", "Whether or not to output angle data", 1, t->writeAngle)
 	STRUCT_CONFIG_ITEM("record-data-matrices", "Whether or not to output data matrices", 0, t->writeDataMatrix)
+	STRUCT_CONFIG_ITEM("record-lh-object-space", "Whether or not to output lighthouse poses in object space", 0, t->writeLHObjectSpace)
+	STRUCT_CONFIG_ITEM("record-lh-tracker-fixed", "Whether or not to output lighthouse poses in tracker-fixed coordinate system", 0, t->writeLHTrackerFixed)
 	STRUCT_CONFIG_ITEM("udp-stream", "Enable UDP streaming of recording data", 0, t->udpStreamEnabled)
 END_STRUCT_CONFIG_SECTION(SurviveRecordingData)
 	// clang-format on
@@ -271,6 +275,45 @@ void survive_recording_lighthouse_process(SurviveContext *ctx, uint8_t lighthous
 		"%d LH_POSE " FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF " %u\r\n", mode,
 		lh_pose->Pos[0], lh_pose->Pos[1], lh_pose->Pos[2], lh_pose->Rot[0], lh_pose->Rot[1], lh_pose->Rot[2],
 		lh_pose->Rot[3], ctx->bsd[lighthouse].BaseStationID);
+}
+
+void survive_recording_lighthouse_object_space_calibration(SurviveObject *so, uint8_t lighthouse, const SurvivePose *lh_pose) {
+	SurviveRecordingData *recordingData = so->ctx ? so->ctx->recptr : 0;
+	if (recordingData == 0 || !recordingData->writeLHObjectSpace)
+		return;
+
+	survive_recording_write_to_output(
+		recordingData,
+		"%s LH_POSE_OBJECT_CAL %d " FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF " %u\r\n",
+		so->codename, lighthouse,
+		lh_pose->Pos[0], lh_pose->Pos[1], lh_pose->Pos[2], lh_pose->Rot[0], lh_pose->Rot[1], lh_pose->Rot[2],
+		lh_pose->Rot[3], so->ctx->bsd[lighthouse].BaseStationID);
+}
+
+void survive_recording_lighthouse_object_space_normal(SurviveObject *so, uint8_t lighthouse, const SurvivePose *lh_pose) {
+	SurviveRecordingData *recordingData = so->ctx ? so->ctx->recptr : 0;
+	if (recordingData == 0 || !recordingData->writeLHObjectSpace)
+		return;
+
+	survive_recording_write_to_output(
+		recordingData,
+		"%s LH_POSE_OBJECT %d " FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF " %u\r\n",
+		so->codename, lighthouse,
+		lh_pose->Pos[0], lh_pose->Pos[1], lh_pose->Pos[2], lh_pose->Rot[0], lh_pose->Rot[1], lh_pose->Rot[2],
+		lh_pose->Rot[3], so->ctx->bsd[lighthouse].BaseStationID);
+}
+
+void survive_recording_lighthouse_tracker_fixed_process(SurviveObject *so, uint8_t lighthouse, const SurvivePose *lh_pose) {
+	SurviveRecordingData *recordingData = so->ctx ? so->ctx->recptr : 0;
+	if (recordingData == 0 || !recordingData->writeLHTrackerFixed)
+		return;
+
+	survive_recording_write_to_output(
+		recordingData,
+		"%s LH_POSE_TRACKER_FIXED %d " FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF " %u\r\n",
+		so->codename, lighthouse,
+		lh_pose->Pos[0], lh_pose->Pos[1], lh_pose->Pos[2], lh_pose->Rot[0], lh_pose->Rot[1], lh_pose->Rot[2],
+		lh_pose->Rot[3], so->ctx->bsd[lighthouse].BaseStationID);
 }
 void survive_recording_velocity_process(SurviveObject *so, uint8_t lighthouse, const SurviveVelocity *pose) {
 	SurviveRecordingData *recordingData = so->ctx->recptr;

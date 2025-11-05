@@ -2,6 +2,7 @@
 #include "math.h"
 #include "survive_kalman_lighthouses.h"
 #include "survive_kalman_tracker.h"
+#include "survive_recording.h"
 #include <assert.h>
 #include <linmath.h>
 #include <stdint.h>
@@ -61,6 +62,106 @@ void survive_covariance_poseAA2pose(struct CnMat *R_q, const LinmathAxisAnglePos
 	CN_CREATE_STACK_MAT(G, R_q->rows, R_aa->rows);
 	survive_poseAA2pose_jacobian(&G, poseAA);
 	gemm_ABAt_add_scaled(R_q, &G, R_aa, 0, 1, 1, 0);
+}
+
+// Calculate tracker-fixed coordinate frame from sensor positions using PCA
+// Takes sensor positions in trackref space (original tracker geometry frame)
+// This ensures the coordinate system is based on physical tracker geometry, not IMU orientation
+// This function can be called during device loading when positions are still in trackref space (avoiding double transform)
+static void calculate_tracker_fixed_frame_from_positions(const LinmathPoint3d *sensor_positions, size_t sensor_count, SurvivePose *arb2tracker_fixed) {
+	if (sensor_count < 3) {
+		// Not enough sensors to define a coordinate frame
+		*arb2tracker_fixed = (SurvivePose){.Rot = {1.}};
+		return;
+	}
+
+	// 1. Calculate centroid (tracker center) in trackref space
+	LinmathPoint3d centroid = {0};
+	for (size_t i = 0; i < sensor_count; i++) {
+		add3d(centroid, centroid, sensor_positions[i]);
+	}
+	scale3d(centroid, centroid, 1.0 / sensor_count);
+
+	// 2. Center sensor positions and compute covariance matrix
+	CN_CREATE_STACK_MAT(cov, 3, 3);
+	CN_CREATE_STACK_MAT(centered_data, sensor_count, 3);
+	cnSetZero(&cov);
+	cnSetZero(&centered_data);
+
+	// Center the data (using trackref-space positions)
+	for (size_t i = 0; i < sensor_count; i++) {
+		LinmathPoint3d centered;
+		sub3d(centered, sensor_positions[i], centroid);
+		for (int j = 0; j < 3; j++) {
+			cnMatrixSet(&centered_data, i, j, centered[j]);
+		}
+	}
+
+	// Compute covariance matrix: cov = (1/n) * centered_data^T * centered_data
+	CN_CREATE_STACK_MAT(centered_data_t, 3, sensor_count);
+	cnTranspose(&centered_data, &centered_data_t);
+	cnGEMM(&centered_data_t, &centered_data, 1.0 / sensor_count, 0, 0, &cov, 0);
+
+	// 3. Perform SVD to get principal components (eigenvectors)
+	CN_CREATE_STACK_MAT(S, 3, 1);      // Singular values
+	CN_CREATE_STACK_MAT(U, 3, 3);      // Left singular vectors (principal components)
+	CN_CREATE_STACK_MAT(Vt, 3, 3);     // Right singular vectors (transpose)
+
+	cnSVD(&cov, &S, &U, &Vt, CN_SVD_MODIFY_A);
+
+	// Principal axes are columns of U (for covariance matrix, U contains eigenvectors)
+	// Extract rotation matrix from U
+	FLT rot_matrix[3][3];
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 3; j++) {
+			rot_matrix[i][j] = cnMatrixGet(&U, i, j);
+		}
+	}
+
+	// Ensure right-handed coordinate system
+	FLT det = rot_matrix[0][0] * (rot_matrix[1][1] * rot_matrix[2][2] - rot_matrix[1][2] * rot_matrix[2][1]) -
+			  rot_matrix[0][1] * (rot_matrix[1][0] * rot_matrix[2][2] - rot_matrix[1][2] * rot_matrix[2][0]) +
+			  rot_matrix[0][2] * (rot_matrix[1][0] * rot_matrix[2][1] - rot_matrix[1][1] * rot_matrix[2][0]);
+
+	if (det < 0) {
+		// Flip last column to ensure right-handed system
+		for (int i = 0; i < 3; i++) {
+			rot_matrix[i][2] = -rot_matrix[i][2];
+		}
+	}
+
+	// 4. Convert rotation matrix to quaternion
+	quatfrommatrix33(arb2tracker_fixed->Rot, rot_matrix[0]);
+
+	// 5. Set translation to move to tracker center (origin)
+	scale3d(arb2tracker_fixed->Pos, centroid, -1.0);
+}
+
+// Wrapper that works with SurviveObject - transforms from IMU space to trackref space if needed
+// Made non-static so it can be called from survive_process.c for regular pose updates
+SURVIVE_EXPORT void calculate_tracker_fixed_frame(SurviveObject *so, SurvivePose *arb2tracker_fixed) {
+	if (!so->has_sensor_locations || so->sensor_ct < 3) {
+		*arb2tracker_fixed = (SurvivePose){.Rot = {1.}};
+		return;
+	}
+
+	// Transform sensor positions from IMU space back to trackref space
+	LinmathPoint3d *sensor_positions_trackref = (LinmathPoint3d *)alloca(sizeof(LinmathPoint3d) * so->sensor_ct);
+	for (int i = 0; i < so->sensor_ct; i++) {
+		ApplyPoseToPoint(&sensor_positions_trackref[i], &so->imu2trackref, &so->sensor_locations[i * 3]);
+	}
+
+	// Calculate using trackref-space positions
+	calculate_tracker_fixed_frame_from_positions(sensor_positions_trackref, so->sensor_ct, arb2tracker_fixed);
+}
+
+// Transform lighthouse pose from object space (arbitrary frame) to tracker-fixed space
+// Made non-static so it can be called from survive_process.c
+SURVIVE_EXPORT void transform_to_tracker_fixed(const SurvivePose *lh2object, 
+									   const SurvivePose *arb2tracker_fixed,
+									   SurvivePose *lh2tracker_fixed) {
+	// Transform: lh2tracker_fixed = arb2tracker_fixed * lh2object
+	ApplyPoseToPose(lh2tracker_fixed, arb2tracker_fixed, lh2object);
 }
 
 SURVIVE_EXPORT int32_t PoserData_size(const PoserData *poser_data) {
@@ -168,6 +269,32 @@ void PoserData_lighthouse_pose_func(PoserData *poser_data, SurviveObject *so, ui
 
 			SurvivePose lighthouse2obj;
 			ApplyPoseToPose(&lighthouse2obj, &arb2object, &lighthouse2arb);
+
+			if (so->ctx->recptr && so->ctx->recptr->writeLHObjectSpace) {
+				survive_recording_lighthouse_object_space_normal(so, lighthouse, &lighthouse2obj);
+			}
+
+			// NEW ADDITIVE CODE: Record tracker-fixed poses if enabled
+			if (so->ctx->recptr && so->ctx->recptr->writeLHTrackerFixed) {
+				// Calculate tracker-fixed frame (cached per object pointer)
+				static SurvivePose arb2tracker_fixed_cache = {0};
+				static SurviveObject *cached_so = 0;
+				static bool frame_calculated = false;
+				
+				if (cached_so != so || !frame_calculated) {
+					calculate_tracker_fixed_frame(so, &arb2tracker_fixed_cache);
+					cached_so = so;
+					frame_calculated = true;
+				}
+				
+				// Transform to tracker-fixed
+				SurvivePose lh2tracker_fixed;
+				transform_to_tracker_fixed(&lighthouse2obj, &arb2tracker_fixed_cache, &lh2tracker_fixed);
+				
+				// Record
+				survive_recording_lighthouse_tracker_fixed_process(so, lighthouse, &lh2tracker_fixed);
+			}
+
 			SurvivePose arb2world = arb2object;
 
 			// Find the poses that map to the above
@@ -320,6 +447,39 @@ void PoserData_lighthouse_poses_func(PoserData *poser_data, SurviveObject *so, S
 			if (object_pose && quatiszero(object_pose->Rot)) {
 				*object_pose = (SurvivePose){.Rot = {1.}};
 			}
+			
+			// Record lighthouse pose in object space for every frame/update
+			// lighthouse_pose[lighthouse] is already in object space when passed to custom callback
+			if (so->ctx->recptr && so->ctx->recptr->writeLHObjectSpace) {
+				SurvivePose lh2object = lighthouse_pose[lighthouse];
+				quatnormalize(lh2object.Rot, lh2object.Rot);
+				survive_recording_lighthouse_object_space_normal(so, lighthouse, &lh2object);
+			}
+
+			// NEW ADDITIVE CODE: Record tracker-fixed poses if enabled
+			if (so->ctx->recptr && so->ctx->recptr->writeLHTrackerFixed) {
+				SurvivePose lh2object = lighthouse_pose[lighthouse];
+				quatnormalize(lh2object.Rot, lh2object.Rot);
+				
+				// Calculate tracker-fixed frame (cached per object pointer)
+				static SurvivePose arb2tracker_fixed_cache = {0};
+				static SurviveObject *cached_so = 0;
+				static bool frame_calculated = false;
+				
+				if (cached_so != so || !frame_calculated) {
+					calculate_tracker_fixed_frame(so, &arb2tracker_fixed_cache);
+					cached_so = so;
+					frame_calculated = true;
+				}
+				
+				// Transform to tracker-fixed
+				SurvivePose lh2tracker_fixed;
+				transform_to_tracker_fixed(&lh2object, &arb2tracker_fixed_cache, &lh2tracker_fixed);
+				
+				// Record
+				survive_recording_lighthouse_tracker_fixed_process(so, lighthouse, &lh2tracker_fixed);
+			}
+			
 			poser_data->lighthouseposeproc(so, lighthouse, &lighthouse_pose[lighthouse], object_pose,
 										   poser_data->userdata);
 		}
@@ -362,6 +522,32 @@ void PoserData_lighthouse_poses_func(PoserData *poser_data, SurviveObject *so, S
 
 			SurvivePose lh2object = lighthouse_pose[lh];
 			quatnormalize(lh2object.Rot, lh2object.Rot);
+
+			// Record lighthouse pose in object space for every frame/update
+			if (so->ctx->recptr && so->ctx->recptr->writeLHObjectSpace) {
+				survive_recording_lighthouse_object_space_normal(so, lh, &lh2object);
+			}
+
+			// NEW ADDITIVE CODE: Record tracker-fixed poses if enabled
+			if (so->ctx->recptr && so->ctx->recptr->writeLHTrackerFixed) {
+				// Calculate tracker-fixed frame (cached per object pointer)
+				static SurvivePose arb2tracker_fixed_cache = {0};
+				static SurviveObject *cached_so = 0;
+				static bool frame_calculated = false;
+				
+				if (cached_so != so || !frame_calculated) {
+					calculate_tracker_fixed_frame(so, &arb2tracker_fixed_cache);
+					cached_so = so;
+					frame_calculated = true;
+				}
+				
+				// Transform to tracker-fixed
+				SurvivePose lh2tracker_fixed;
+				transform_to_tracker_fixed(&lh2object, &arb2tracker_fixed_cache, &lh2tracker_fixed);
+				
+				// Record
+				survive_recording_lighthouse_tracker_fixed_process(so, lh, &lh2tracker_fixed);
+			}
 
 			SurvivePose lh2world = lh2object;
 			CnMat LH_R;

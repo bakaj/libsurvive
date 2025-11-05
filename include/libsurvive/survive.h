@@ -651,6 +651,12 @@ SURVIVE_EXPORT void survive_default_raw_lighthouse_pose_process(SurviveContext *
 															const SurvivePose *lh_pose);
 SURVIVE_EXPORT void survive_default_lighthouse_pose_process(SurviveContext *ctx, uint8_t lighthouse,
 															const SurvivePose *lh_pose);
+
+// Tracker-fixed coordinate system functions (based on sensor geometry)
+SURVIVE_EXPORT void calculate_tracker_fixed_frame(SurviveObject *so, SurvivePose *arb2tracker_fixed);
+SURVIVE_EXPORT void transform_to_tracker_fixed(const SurvivePose *lh2object, 
+											   const SurvivePose *arb2tracker_fixed,
+											   SurvivePose *lh2tracker_fixed);
 SURVIVE_EXPORT int survive_default_config_process(SurviveObject *so, char *ct0conf, int len);
 SURVIVE_EXPORT void survive_default_gen_detected_process(SurviveObject *so, int lh_version);
 SURVIVE_EXPORT void survive_default_new_object_process(SurviveObject *so);

@@ -21,7 +21,11 @@
 
 #include <stdbool.h>
 
+#ifdef _WIN32
 #include <malloc.h>
+#else
+#include <stdlib.h>
+#endif
 #include "cnmatrix/cn_flt.h"
 #include "math.h"
 #include "string.h"

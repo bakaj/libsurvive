@@ -435,6 +435,9 @@ int survive_load_htc_config_format(SurviveObject *so, char *ct0conf, int len) {
 		if (scratch.sensor_scale != 0.0) {
 			scale3d(&so->sensor_locations[i * 3], &so->sensor_locations[i * 3], scratch.sensor_scale);
 		}
+		// Transform to IMU space (for use in rest of system)
+		// Note: Tracker-fixed frame calculation in poser.c will transform back to trackref space when needed
+		// This single transform (IMU->trackref) happens once per tracker and is cached, so it's acceptable
 		ApplyPoseToPoint(&so->sensor_locations[i * 3], &trackref2imu, &so->sensor_locations[i * 3]);
 		quatrotatevector(&so->sensor_normals[i * 3], trackref2imu.Rot, &so->sensor_normals[i * 3]);
 	}
