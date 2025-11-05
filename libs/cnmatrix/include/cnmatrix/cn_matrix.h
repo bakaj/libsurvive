@@ -21,7 +21,12 @@
 
 #include <stdbool.h>
 
+// malloc.h is not available on macOS, use stdlib.h instead
+#if defined(__APPLE__) || defined(__FreeBSD__)
+#include <stdlib.h>
+#else
 #include <malloc.h>
+#endif
 #include "cnmatrix/cn_flt.h"
 #include "math.h"
 #include "string.h"

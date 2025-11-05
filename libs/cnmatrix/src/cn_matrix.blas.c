@@ -18,7 +18,12 @@
 
 #ifdef _WIN32
 #define SURVIVE_LOCAL_ONLY
+// malloc.h is not available on macOS, use stdlib.h instead
+#if defined(__APPLE__) || defined(__FreeBSD__)
+#include <stdlib.h>
+#else
 #include <malloc.h>
+#endif
 #define alloca _alloca
 #else
 #define SURVIVE_LOCAL_ONLY __attribute__((visibility("hidden")))

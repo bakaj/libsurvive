@@ -2,6 +2,7 @@
 #include "math.h"
 #include "survive_kalman_lighthouses.h"
 #include "survive_kalman_tracker.h"
+#include "survive_recording.h"
 #include <assert.h>
 #include <linmath.h>
 #include <stdint.h>
@@ -156,6 +157,9 @@ void PoserData_lighthouse_pose_func(PoserData *poser_data, SurviveObject *so, ui
 		if (object_pose && !quatiszero(object_pose->Rot))
 			object2arb = *object_pose;
 		SurvivePose lighthouse2arb = *lighthouse_pose;
+
+		// Record arbitrary-space pose directly (before any transformations) - this is the "super raw" pose
+		survive_recording_lighthouse_arbitrary_process(so, lighthouse, &lighthouse2arb);
 
 		SurvivePose obj2world, lighthouse2world;
 		// Purposefully only set this once. It should only depend on the first (calculated) lighthouse

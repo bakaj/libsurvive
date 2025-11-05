@@ -542,6 +542,16 @@ static FLT handle_optimizer_results(survive_optimizer *mpfitctx, int res, const 
 			SurvivePose cameras[NUM_GEN2_LIGHTHOUSES] = {0};
 			FLT variances[NUM_GEN2_LIGHTHOUSES] = {0};
 
+			// Record arbitrary-space poses directly (before transformations) - this is the "super raw" pose
+			// The function checks the flag internally, so we can always call it
+			for (int i = 0; i < mpfitctx->cameraLength; i++) {
+				if (has_data_for_lh(meas_for_lhs_axis, i) > 0 && !quatiszero(opt_cameras[i].Rot)) {
+					// opt_cameras[i] is object2lh, invert to get lh2object (arbitrary space)
+					SurvivePose lh2arb = InvertPoseRtn(&opt_cameras[i]);
+					survive_recording_lighthouse_arbitrary_process(so, i, &lh2arb);
+				}
+			}
+
 			for (int i = 0; i < mpfitctx->cameraLength; i++) {
 				if (has_data_for_lh(meas_for_lhs_axis, i) > 0 && !quatiszero(opt_cameras[i].Rot)) {
 					cameras[i] = InvertPoseRtn(&opt_cameras[i]);
