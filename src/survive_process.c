@@ -75,6 +75,8 @@ void survive_default_pose_process(SurviveObject *so, survive_long_timecode timec
 		ApplyPoseToPose(&lh2imu, &world2imu, lh2world);
 
 		// imu → trackref (trackref is the sensor-geometry frame)
+		SV_VERBOSE(200, "%s imu2trackref: " SurvivePose_format,
+				   survive_colorize(so->codename), SURVIVE_POSE_EXPAND(so->imu2trackref));
 		SurvivePose lh2trackref;
 		ApplyPoseToPose(&lh2trackref, &so->imu2trackref, &lh2imu);
 

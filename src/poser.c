@@ -161,6 +161,8 @@ void PoserData_lighthouse_pose_func(PoserData *poser_data, SurviveObject *so, ui
 		// Transform from IMU space (optimizer's object space) to trackref space
 		// The optimizer uses sensor_locations which are stored in IMU space, so
 		// lighthouse2arb is actually lh2imu. We need to transform to trackref space.
+		SV_VERBOSE(200, "%s imu2trackref: " SurvivePose_format " (LH %d)",
+				   survive_colorize(so->codename), SURVIVE_POSE_EXPAND(so->imu2trackref), lighthouse);
 		SurvivePose lighthouse2trackref;
 		ApplyPoseToPose(&lighthouse2trackref, &so->imu2trackref, &lighthouse2arb);
 		quatnormalize(lighthouse2trackref.Rot, lighthouse2trackref.Rot);

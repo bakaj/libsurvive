@@ -552,6 +552,8 @@ static FLT handle_optimizer_results(survive_optimizer *mpfitctx, int res, const 
 					// opt_cameras[i] is object2lh, invert to get lh2object (IMU space)
 					SurvivePose lh2imu = InvertPoseRtn(&opt_cameras[i]);
 					// Transform from IMU space to trackref space
+					SV_VERBOSE(200, "%s imu2trackref: " SurvivePose_format " (LH %d)",
+							   survive_colorize(so->codename), SURVIVE_POSE_EXPAND(so->imu2trackref), i);
 					SurvivePose lh2trackref;
 					ApplyPoseToPose(&lh2trackref, &so->imu2trackref, &lh2imu);
 					quatnormalize(lh2trackref.Rot, lh2trackref.Rot);
