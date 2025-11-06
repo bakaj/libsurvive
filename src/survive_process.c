@@ -48,23 +48,38 @@ void survive_default_pose_process(SurviveObject *so, survive_long_timecode timec
 	so->OutPose_timecode = timecode;
 	survive_recording_raw_pose_process(so, timecode, pose);
 
-	// Record lighthouse poses in trackref space during normal tracking updates
-	// (same frequency as raw pose recording)
 	SurviveContext *ctx = so->ctx;
-	if (ctx && !quatiszero(so->OutPoseIMU.Rot)) {
-		SurvivePose world2imu = InvertPoseRtn(&so->OutPoseIMU);
-		for (int i = 0; i < ctx->activeLighthouses; i++) {
-			if (ctx->bsd[i].PositionSet && !quatiszero(ctx->bsd[i].Pose.Rot)) {
-				SurvivePose lh2world = ctx->bsd[i].Pose;
-				// Transform from world space to trackref space via IMU space
-				SurvivePose lh2imu;
-				ApplyPoseToPose(&lh2imu, &world2imu, &lh2world);
-				SurvivePose lh2trackref;
-				ApplyPoseToPose(&lh2trackref, &so->imu2trackref, &lh2imu);
-				quatnormalize(lh2trackref.Rot, lh2trackref.Rot);
-				survive_recording_lighthouse_trackref_process(so, i, &lh2trackref);
-			}
-		}
+	if (!ctx)
+		return;
+
+	// Use the freshest IMU/object pose we have (prefer the incoming pose)
+	// The incoming pose is head2world, but if report-in-imu is set, it's imu2world
+	// For non-HMD trackers, we need imu2world, so use OutPoseIMU which is always imu2world
+	const SurvivePose *object2world = &so->OutPoseIMU;
+	if (quatiszero(object2world->Rot))
+		return;
+
+	// world → imu/object
+	SurvivePose world2imu = InvertPoseRtn(object2world);
+
+	for (int i = 0; i < ctx->activeLighthouses; i++) {
+		if (!ctx->bsd[i].PositionSet)
+			continue;
+
+		const SurvivePose *lh2world = &ctx->bsd[i].Pose;
+		if (quatiszero(lh2world->Rot))
+			continue;
+
+		// lh → imu
+		SurvivePose lh2imu;
+		ApplyPoseToPose(&lh2imu, &world2imu, lh2world);
+
+		// imu → trackref (trackref is the sensor-geometry frame)
+		SurvivePose lh2trackref;
+		ApplyPoseToPose(&lh2trackref, &so->imu2trackref, &lh2imu);
+
+		quatnormalize(lh2trackref.Rot, lh2trackref.Rot);
+		survive_recording_lighthouse_trackref_process(so, i, &lh2trackref);
 	}
 }
 void survive_default_velocity_process(SurviveObject *so, survive_long_timecode timecode,
