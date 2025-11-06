@@ -47,6 +47,25 @@ void survive_default_pose_process(SurviveObject *so, survive_long_timecode timec
 	so->OutPose = *pose;
 	so->OutPose_timecode = timecode;
 	survive_recording_raw_pose_process(so, timecode, pose);
+
+	// Record lighthouse poses in trackref space during normal tracking updates
+	// (same frequency as raw pose recording)
+	SurviveContext *ctx = so->ctx;
+	if (ctx && !quatiszero(so->OutPoseIMU.Rot)) {
+		SurvivePose world2imu = InvertPoseRtn(&so->OutPoseIMU);
+		for (int i = 0; i < ctx->activeLighthouses; i++) {
+			if (ctx->bsd[i].PositionSet && !quatiszero(ctx->bsd[i].Pose.Rot)) {
+				SurvivePose lh2world = ctx->bsd[i].Pose;
+				// Transform from world space to trackref space via IMU space
+				SurvivePose lh2imu;
+				ApplyPoseToPose(&lh2imu, &world2imu, &lh2world);
+				SurvivePose lh2trackref;
+				ApplyPoseToPose(&lh2trackref, &so->imu2trackref, &lh2imu);
+				quatnormalize(lh2trackref.Rot, lh2trackref.Rot);
+				survive_recording_lighthouse_trackref_process(so, i, &lh2trackref);
+			}
+		}
+	}
 }
 void survive_default_velocity_process(SurviveObject *so, survive_long_timecode timecode,
 									  const SurviveVelocity *velocity) {
