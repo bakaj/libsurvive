@@ -1011,6 +1011,41 @@ bool solve_global_scene(struct SurviveContext *ctx, MPFITData *d, PoserDataGloba
 			}
 		}
 
+		// Record trackref-space poses for each tracker-lighthouse combination from global scene solver
+		// The optimizer uses sensor_locations which are stored in IMU space, so
+		// object poses are imu2world. We need to transform lh2world to lh2imu to lh2trackref.
+		SurvivePose *opt_poses = survive_optimizer_get_pose(&mpfitctx);
+		for (int s = 0; s < scenes_cnt; s++) {
+			SurviveObject *so = mpfitctx.sos[s];
+			if (!so || quatiszero(opt_poses[s].Rot))
+				continue;
+
+			// imu2world for this tracker
+			SurvivePose imu2world = opt_poses[s];
+			SurvivePose world2imu = InvertPoseRtn(&imu2world);
+
+			for (int i = 0; i < mpfitctx.cameraLength; i++) {
+				if (quatiszero(cameras[i].Rot) || lh_meas[i][0] == 0 || lh_meas[i][1] == 0)
+					continue;
+
+				// lh2world (already inverted from opt_cameras)
+				const SurvivePose *lh2world = &cameras[i];
+
+				// lh2imu = world2imu * lh2world
+				SurvivePose lh2imu;
+				ApplyPoseToPose(&lh2imu, &world2imu, lh2world);
+
+				// lh2trackref = imu2trackref * lh2imu
+				SV_VERBOSE(200, "%s imu2trackref: " SurvivePose_format " (LH %d, GSS)",
+						   survive_colorize(so->codename), SURVIVE_POSE_EXPAND(so->imu2trackref), i);
+				SurvivePose lh2trackref;
+				ApplyPoseToPose(&lh2trackref, &so->imu2trackref, &lh2imu);
+				quatnormalize(lh2trackref.Rot, lh2trackref.Rot);
+
+				survive_recording_lighthouse_trackref_global_process(so, i, &lh2trackref);
+			}
+		}
+
 		if (worldEstablishedLh == -1) {
 			int ref = survive_get_reference_bsd(ctx, cameras, mpfitctx.cameraLength);
 			if (ref == -1)

@@ -287,6 +287,18 @@ SURVIVE_EXPORT void survive_recording_lighthouse_trackref_process(SurviveObject 
 		lh_pose->Pos[0], lh_pose->Pos[1], lh_pose->Pos[2], lh_pose->Rot[0], lh_pose->Rot[1], lh_pose->Rot[2],
 		lh_pose->Rot[3], so->ctx->bsd[lighthouse].BaseStationID);
 }
+SURVIVE_EXPORT void survive_recording_lighthouse_trackref_global_process(SurviveObject *so, uint8_t lighthouse, const SurvivePose *lh_pose) {
+	SurviveRecordingData *recordingData = so->ctx ? so->ctx->recptr : 0;
+	if (recordingData == 0 || !recordingData->writeLHTrackref)
+		return;
+
+	survive_recording_write_to_output(
+		recordingData,
+		"%s LH_POSE_TRACKREF_GSS %d " FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF FLT_PRINTF " %u\r\n",
+		so->codename, lighthouse,
+		lh_pose->Pos[0], lh_pose->Pos[1], lh_pose->Pos[2], lh_pose->Rot[0], lh_pose->Rot[1], lh_pose->Rot[2],
+		lh_pose->Rot[3], so->ctx->bsd[lighthouse].BaseStationID);
+}
 void survive_recording_velocity_process(SurviveObject *so, uint8_t lighthouse, const SurviveVelocity *pose) {
 	SurviveRecordingData *recordingData = so->ctx->recptr;
 	if (recordingData == 0)
